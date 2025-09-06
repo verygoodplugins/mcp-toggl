@@ -29,6 +29,17 @@
   ],
   "author": "Very Good Plugins",
   "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/verygoodplugins/mcp-toggl.git"
+  },
+  "homepage": "https://github.com/verygoodplugins/mcp-toggl#readme",
+  "bugs": {
+    "url": "https://github.com/verygoodplugins/mcp-toggl/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "publishConfig": {
     "access": "public"
   },

@@ -25,14 +25,68 @@ import type {
   TimeEntry
 } from './types.js';
 
+// Version for CLI output and server metadata
+const VERSION = '1.0.0';
+
+// Basic CLI flags: --help / -h and --version / -v
+const argv = process.argv.slice(2);
+if (argv.includes('--version') || argv.includes('-v')) {
+  console.log(`mcp-toggl version ${VERSION}`);
+  process.exit(0);
+}
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(`mcp-toggl - Toggl MCP Server\n\n` +
+`Usage:\n` +
+`  npx @verygoodplugins/mcp-toggl@latest [--help] [--version]\n\n` +
+`Environment:\n` +
+`  TOGGL_API_KEY                Required Toggl API token\n` +
+`  TOGGL_DEFAULT_WORKSPACE_ID   Optional default workspace id\n` +
+`  TOGGL_CACHE_TTL              Cache TTL in ms (default: 3600000)\n` +
+`  TOGGL_CACHE_SIZE             Max cached entities (default: 1000)\n\n` +
+`Claude Desktop (claude_desktop_config.json):\n` +
+`  {\n` +
+`    "mcpServers": {\n` +
+`      "mcp-toggl": {\n` +
+`        "command": "npx @verygoodplugins/mcp-toggl@latest",\n` +
+`        "env": { "TOGGL_API_KEY": "your_api_key_here" }\n` +
+`      }\n` +
+`    }\n` +
+`  }\n\n` +
+`Cursor (~/.cursor/mcp.json):\n` +
+`  {\n` +
+`    "mcp": {\n` +
+`      "servers": {\n` +
+`        "mcp-toggl": {\n` +
+`          "command": "npx",\n` +
+`          "args": ["@verygoodplugins/mcp-toggl@latest"],\n` +
+`          "env": { "TOGGL_API_KEY": "your_api_key_here" }\n` +
+`        }\n` +
+`      }\n` +
+`    }\n` +
+`  }\n`);
+  process.exit(0);
+}
+
 // Load environment variables
 config();
 
 // Validate required environment variables
-const API_KEY = process.env.TOGGL_API_KEY;
+// Support a few aliases for convenience/backward-compat
+const RAW_API_KEY =
+  process.env.TOGGL_API_KEY ||
+  process.env.TOGGL_API_TOKEN ||
+  process.env.TOGGL_TOKEN;
+
+const API_KEY = RAW_API_KEY?.trim();
+
 if (!API_KEY) {
   console.error('Missing required environment variable: TOGGL_API_KEY');
+  console.error('Also accepted: TOGGL_API_TOKEN or TOGGL_TOKEN');
   process.exit(1);
+}
+
+if (process.env.TOGGL_API_TOKEN || process.env.TOGGL_TOKEN) {
+  console.warn('Using TOGGL_API_TOKEN/TOGGL_TOKEN. Prefer TOGGL_API_KEY going forward.');
 }
 
 // Initialize configuration
@@ -70,7 +124,7 @@ async function ensureCache(): Promise<void> {
 const server = new Server(
   {
     name: 'mcp-toggl',
-    version: '1.0.0',
+    version: VERSION,
   },
   {
     capabilities: {
@@ -81,6 +135,16 @@ const server = new Server(
 
 // Define tool schemas
 const tools: Tool[] = [
+  // Health/authentication
+  {
+    name: 'toggl_check_auth',
+    description: 'Verify Toggl API connectivity and authentication is valid',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    },
+  },
   // Time tracking tools
   {
     name: 'toggl_get_time_entries',
@@ -329,6 +393,33 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   
   try {
     switch (name) {
+      // Health/authentication
+      case 'toggl_check_auth': {
+        const me = await api.getMe();
+        const workspaces = await api.getWorkspaces();
+        const maskEmail = (e?: string) => {
+          if (!e) return undefined as unknown as string;
+          const [user, domain] = e.split('@');
+          if (!domain) return '***';
+          const u = user.length <= 2 ? '*'.repeat(user.length) : `${user[0]}***${user.slice(-1)}`;
+          return `${u}@${domain}`;
+        };
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              authenticated: true,
+              user: {
+                id: (me as any).id,
+                email: maskEmail((me as any).email),
+                fullname: (me as any).fullname
+              },
+              workspaces: workspaces.map(w => ({ id: w.id, name: w.name })),
+            }, null, 2)
+          }]
+        };
+      }
+
       // Time tracking tools
       case 'toggl_get_time_entries': {
         await ensureCache();

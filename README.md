@@ -11,7 +11,50 @@ A Model Context Protocol (MCP) server for Toggl Track integration, providing tim
 - **Flexible Filtering**: Query by date ranges, workspaces, or projects
 - **Automation Ready**: Structured JSON output perfect for Automation Hub workflows
 
-## Installation
+## Quick Start (Recommended)
+
+Use via npx without cloning or building locally.
+
+### Claude Desktop
+Add this to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "mcp-toggl": {
+      "command": "npx @verygoodplugins/mcp-toggl@latest",
+      "env": {
+        "TOGGL_API_KEY": "your_api_key_here",
+        "TOGGL_DEFAULT_WORKSPACE_ID": "123456",
+        "TOGGL_CACHE_TTL": "3600000",
+        "TOGGL_CACHE_SIZE": "1000"
+      }
+    }
+  }
+}
+```
+
+### Cursor
+Add this to your Cursor MCP settings (e.g., `~/.cursor/mcp.json`):
+```json
+{
+  "mcp": {
+    "servers": {
+      "mcp-toggl": {
+        "command": "npx",
+        "args": ["@verygoodplugins/mcp-toggl@latest"],
+        "env": {
+          "TOGGL_API_KEY": "your_api_key_here",
+          "TOGGL_DEFAULT_WORKSPACE_ID": "123456",
+          "TOGGL_CACHE_TTL": "3600000",
+          "TOGGL_CACHE_SIZE": "1000"
+        }
+      }
+    }
+  }
+}
+```
+
+## Manual Installation
 
 ```bash
 npm install
@@ -25,6 +68,10 @@ npm run build
 2. Create a `.env` file:
 ```env
 TOGGL_API_KEY=your_api_key_here
+
+# Aliases also supported (use one of these only if needed):
+# TOGGL_API_TOKEN=your_api_key_here
+# TOGGL_TOKEN=your_api_key_here
 
 # Optional configuration
 TOGGL_DEFAULT_WORKSPACE_ID=123456  # Your default workspace
@@ -221,6 +268,19 @@ The server returns structured JSON perfect for Automation Hub workflows:
 ### API Key Issues
 - Ensure your API key is correct (get from https://track.toggl.com/profile)
 - API key goes in the username field, "api_token" as password for basic auth
+- Trim whitespace: copy/paste can include trailing spaces/newlines which cause 401/403
+- Accepted env var names: `TOGGL_API_KEY` (preferred), `TOGGL_API_TOKEN`, or `TOGGL_TOKEN`
+- If you see 401/403, regenerate the token on your Toggl profile and update your MCP config
+
+### Security & Token Lifecycle
+- This server uses Basic Auth with a Toggl API token, not OAuth; there is no refresh token to manage.
+- Toggl API tokens do not expire automatically. They only change if you manually regenerate them or if Toggl invalidates them during a security event.
+- If you regenerate your token, the old one stops working immediately. Update the `TOGGL_API_KEY` in your Claude/Cursor config and restart the client.
+- Never commit real secrets to version control. Use placeholders like `your_api_key_here` in docs and examples.
+- Claude Desktop stores the env value in `claude_desktop_config.json` on your machine. Treat that file as sensitive and do not share it.
+
+### Quick Auth Check
+You can verify connectivity by calling the `toggl_check_auth` tool, which pings `/me` and lists your available workspaces without exposing your token.
 
 ### Rate Limiting
 - The server implements automatic retry with exponential backoff

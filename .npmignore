@@ -1,0 +1,48 @@
+# Source files (only distribute compiled JS)
+src/
+*.ts
+!*.d.ts
+
+# Development and local env
+.env
+.env.*
+*.log
+node_modules/
+coverage/
+.nyc_output/
+
+# Git and IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+*.code-workspace
+
+# Examples and docs source
+*.example.*
+
+# Test files and configs
+__tests__/
+*.test.*
+jest.config.*
+tsconfig.json
+.eslintrc.*
+.prettierrc.*
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+worktrees/
+scripts/
+*.tgz
+package-lock.json
+
+# Keep these in the published package
+!dist/
+!README.md
+!LICENSE
+!package.json
+!.npmignore

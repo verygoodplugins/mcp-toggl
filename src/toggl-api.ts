@@ -18,10 +18,12 @@ export class TogglAPI {
   
   constructor(apiKey: string) {
     // Basic auth: API key as username, 'api_token' as password
-    const auth = Buffer.from(`${apiKey}:api_token`).toString('base64');
+    const key = apiKey.trim();
+    const auth = Buffer.from(`${key}:api_token`).toString('base64');
     this.headers = {
       'Authorization': `Basic ${auth}`,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'User-Agent': 'mcp-toggl/1.0.0 (+https://verygoodplugins.com)'
     };
   }
   
@@ -46,14 +48,23 @@ export class TogglAPI {
         if (response.status === 429) {
           const retryAfter = response.headers.get('Retry-After');
           const delay = retryAfter ? parseInt(retryAfter) * 1000 : (i + 1) * 2000;
-          console.log(`Rate limited. Retrying after ${delay}ms...`);
+          // Log to stderr so we don't pollute MCP stdio
+          console.error(`Rate limited. Retrying after ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
         
         if (!response.ok) {
-          const error = await response.text();
-          throw new Error(`Toggl API error (${response.status}): ${error}`);
+          const text = await response.text();
+          if (response.status === 401 || response.status === 403) {
+            // Normalize common auth failure into a clearer message
+            throw new Error(
+              `Authentication failed (${response.status}). ` +
+              `Verify TOGGL_API_KEY is correct, has no leading/trailing spaces, and is the Toggl Track API token. ` +
+              `Server response: ${text}`
+            );
+          }
+          throw new Error(`Toggl API error (${response.status}): ${text}`);
         }
         
         // Handle 204 No Content

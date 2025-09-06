@@ -270,7 +270,8 @@ export class CacheManager {
   
   // Warm cache by pre-fetching common entities
   async warmCache(workspaceId?: number): Promise<void> {
-    console.log('Warming cache...');
+    // Log to stderr to avoid interfering with MCP stdio protocol
+    console.error('Warming cache...');
     
     try {
       // Fetch all workspaces
@@ -294,7 +295,7 @@ export class CacheManager {
         }
       }
       
-      console.log('Cache warmed successfully');
+      console.error('Cache warmed successfully');
     } catch (error) {
       console.error('Failed to warm cache:', error);
     }
@@ -324,7 +325,7 @@ export class CacheManager {
     // Pre-fetch missing entities
     const projectsToFetch = Array.from(projectIds).filter(id => !this.projects.has(id));
     if (projectsToFetch.length > 0 && this.api) {
-      console.log(`Fetching ${projectsToFetch.length} missing projects...`);
+      console.error(`Fetching ${projectsToFetch.length} missing projects...`);
       await Promise.all(projectsToFetch.map(id => this.getProject(id)));
     }
     
