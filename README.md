@@ -2,6 +2,10 @@
 
 A Model Context Protocol (MCP) server for Toggl Track integration, providing time tracking and reporting capabilities with intelligent caching for optimal performance.
 
+<a href="https://glama.ai/mcp/servers/@verygoodplugins/mcp-toggl">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@verygoodplugins/mcp-toggl/badge" alt="Toggl Server MCP server" />
+</a>
+
 ## Features
 
 - **Time Tracking**: Start/stop timers, get current and past time entries
