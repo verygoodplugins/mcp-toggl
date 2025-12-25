@@ -12,4 +12,4 @@ dist/
 .cache/
 tmp/
 *.code-workspace
-.tgz
+*.tgz

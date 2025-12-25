@@ -4,6 +4,7 @@
   "description": "MCP server for Toggl Track integration with time tracking and reporting",
   "main": "dist/index.js",
   "type": "module",
+  "mcpName": "io.github.verygoodplugins/mcp-toggl",
   "bin": {
     "mcp-toggl": "dist/index.js"
   },

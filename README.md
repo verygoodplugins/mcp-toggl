@@ -313,4 +313,4 @@ For issues or questions, please open an issue on GitHub.
 
 ---
 
-Built with 🧡 for the open source community by [Very Good Plugins](https://verygoodplugins.com)
+Built with 🧡 for the open source community by [Very Good Plugins](https://verygoodplugins.com?utm_source=github)
