@@ -51,10 +51,10 @@
     "dotenv": "^16.3.1"
   },
   "devDependencies": {
-    "@types/node": "^20.10.0",
+    "@types/node": "^25.0.3",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
-    "eslint": "^8.54.0",
+    "eslint": "^9.39.2",
     "prettier": "^3.1.0",
     "tsx": "^4.6.0",
     "typescript": "^5.3.0"
