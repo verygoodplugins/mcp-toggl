@@ -18,7 +18,8 @@ import {
   groupEntriesByProject,
   groupEntriesByWorkspace,
   generateProjectSummary,
-  generateWorkspaceSummary
+  generateWorkspaceSummary,
+  parseDate
 } from './utils.js';
 import type {
   CacheConfig,
@@ -378,6 +379,42 @@ const tools: Tool[] = [
       type: 'object',
       properties: {},
       required: []
+    },
+  },
+
+  // Timeline (desktop activity tracking)
+  {
+    name: 'toggl_get_timeline',
+    description: 'Get desktop activity timeline showing application usage. PRIVACY NOTE: Returns window titles which may contain sensitive information (document names, email subjects, URLs). Summary includes all matching events; limit controls the events array size. Requires Toggl desktop app with timeline sync enabled.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        period: {
+          type: 'string',
+          enum: ['today', 'yesterday', 'week', 'lastWeek', 'month', 'lastMonth'],
+          description: 'Predefined period (alternative to start_date/end_date)'
+        },
+        start_date: {
+          type: 'string',
+          description: 'Start date (YYYY-MM-DD format, local timezone)'
+        },
+        end_date: {
+          type: 'string',
+          description: 'End date (YYYY-MM-DD format, local timezone)'
+        },
+        app: {
+          type: 'string',
+          description: 'Filter by application name (case-insensitive partial match)'
+        },
+        include_events: {
+          type: 'boolean',
+          description: 'Include raw events array (default: true). Set to false for summary only.'
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum events to return in events array (default: 50, max: 1000). Does not affect summary calculation.'
+        }
+      }
     },
   }
 ];
@@ -811,18 +848,102 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'toggl_clear_cache': {
         cache.clearCache();
         cacheWarmed = false;
-        
+
         return {
           content: [{
             type: 'text',
-            text: JSON.stringify({ 
+            text: JSON.stringify({
               success: true,
-              message: 'Cache cleared successfully' 
+              message: 'Cache cleared successfully'
             })
           }]
         };
       }
-      
+
+      // Timeline (desktop activity tracking)
+      case 'toggl_get_timeline': {
+        const allEvents = await api.getTimeline();
+
+        // Determine date range
+        let startTs: number | null = null;
+        let endTs: number | null = null;
+
+        if (args?.period) {
+          const range = getDateRange(args.period as 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth');
+          startTs = range.start.getTime() / 1000;
+          endTs = range.end.getTime() / 1000;
+        } else {
+          if (args?.start_date) {
+            startTs = parseDate(args.start_date, 'start_date').getTime() / 1000;
+          }
+          if (args?.end_date) {
+            // Add 86400 seconds (1 day) to include the full end day
+            endTs = parseDate(args.end_date, 'end_date').getTime() / 1000 + 86400;
+          }
+        }
+
+        // Prepare filters
+        const appFilter = args?.app ? String(args.app).toLowerCase() : null;
+        const includeEvents = args?.include_events !== false;
+        const limit = Math.max(1, Math.min(Number(args?.limit) || 50, 1000));
+        const now = Math.floor(Date.now() / 1000);
+
+        // Single-pass processing for performance
+        const appSummary = new Map<string, number>();
+        const events: any[] = [];
+        let totalCount = 0;
+        let totalSeconds = 0;
+
+        for (const e of allEvents) {
+          // Date filtering
+          if (startTs !== null && e.start_time < startTs) continue;
+          if (endTs !== null && e.start_time > endTs) continue;
+
+          // App filtering (null-safe)
+          const filename = e.filename ?? 'Unknown';
+          if (appFilter && !filename.toLowerCase().includes(appFilter)) continue;
+
+          // Calculate duration (handle null end_time for active events)
+          const endTime = e.end_time ?? now;
+          const duration = Math.max(0, endTime - e.start_time);
+
+          // Update summary (from ALL matching events)
+          totalCount++;
+          totalSeconds += duration;
+          appSummary.set(filename, (appSummary.get(filename) ?? 0) + duration);
+
+          // Collect events up to limit
+          if (includeEvents && events.length < limit) {
+            events.push({
+              ...e,
+              filename,
+              start: new Date(e.start_time * 1000).toISOString(),
+              end: new Date(endTime * 1000).toISOString(),
+              duration_seconds: duration
+            });
+          }
+        }
+
+        // Sort summary by duration descending
+        const sortedSummary = Object.fromEntries(
+          [...appSummary.entries()].sort((a, b) => b[1] - a[1])
+        );
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              total_events: totalCount,
+              returned_events: events.length,
+              truncated: totalCount > events.length,
+              total_seconds: totalSeconds,
+              summary: sortedSummary,
+              ...(includeEvents && { events })
+            }, null, 2)
+          }]
+        };
+      }
+
       default:
         throw new Error(`Unknown tool: ${name}`);
     }

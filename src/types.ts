@@ -274,3 +274,14 @@ export interface DateRange {
 export interface GroupedEntries {
   [key: string]: HydratedTimeEntry[];
 }
+
+// Timeline interfaces (for desktop app activity tracking)
+export interface TimelineEvent {
+  id: number;
+  start_time: number;       // Unix timestamp
+  end_time: number | null;  // Unix timestamp (null if currently active)
+  desktop_id: string;
+  filename: string | null;  // Application name (may be null)
+  title: string | null;     // Window title (may be null)
+  idle: boolean;
+}

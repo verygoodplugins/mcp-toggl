@@ -328,3 +328,18 @@ export function formatReportForDisplay(report: DailyReport | WeeklyReport): stri
   
   return lines.join('\n');
 }
+
+// Parse and validate a date string in YYYY-MM-DD format
+export function parseDate(input: unknown, paramName: string): Date {
+  if (typeof input !== 'string') {
+    throw new Error(`${paramName} must be a string`);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+    throw new Error(`${paramName} must be in YYYY-MM-DD format`);
+  }
+  const date = new Date(input + 'T00:00:00');  // Parse as local midnight
+  if (isNaN(date.getTime())) {
+    throw new Error(`${paramName} is not a valid date`);
+  }
+  return date;
+}

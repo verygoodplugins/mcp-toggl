@@ -9,11 +9,13 @@ import type {
   TimeEntry,
   TimeEntriesRequest,
   CreateTimeEntryRequest,
-  UpdateTimeEntryRequest
+  UpdateTimeEntryRequest,
+  TimelineEvent
 } from './types.js';
 
 export class TogglAPI {
   private baseUrl = 'https://api.track.toggl.com/api/v9';
+  private timelineBaseUrl = 'https://track.toggl.com/api/v9';
   private headers: Record<string, string>;
   
   constructor(apiKey: string) {
@@ -274,17 +276,49 @@ export class TogglAPI {
     // This would use the Reports API v3 if needed
     // https://api.track.toggl.com/reports/api/v3/workspace/{workspace_id}/search/time_entries
     const reportsUrl = `https://api.track.toggl.com/reports/api/v3/workspace/${workspaceId}/search/time_entries`;
-    
+
     const response = await fetch(reportsUrl, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify(params)
     });
-    
+
     if (!response.ok) {
       throw new Error(`Reports API error: ${response.status}`);
     }
-    
+
     return response.json();
+  }
+
+  // Timeline API (desktop activity tracking)
+  // Note: Uses different base URL (track.toggl.com instead of api.track.toggl.com)
+  // This is an undocumented endpoint that may change without notice
+  async getTimeline(): Promise<TimelineEvent[]> {
+    const url = `${this.timelineBaseUrl}/timeline`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: this.headers
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(
+          `Timeline authentication failed (${response.status}). ` +
+          `Verify TOGGL_API_KEY is correct. Server response: ${text}`
+        );
+      }
+      throw new Error(`Timeline API error (${response.status}): ${text}`);
+    }
+
+    const data = await response.json();
+
+    // Validate response is array
+    if (!Array.isArray(data)) {
+      throw new Error('Timeline API returned invalid response format');
+    }
+
+    return data as TimelineEvent[];
   }
 }
