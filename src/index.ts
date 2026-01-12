@@ -23,8 +23,11 @@ import {
 } from './utils.js';
 import type {
   CacheConfig,
-  TimeEntry
+  TimeEntry,
+  EnrichedTimelineEvent
 } from './types.js';
+import { isDatePeriod } from './types.js';
+import { SECONDS_PER_DAY } from './utils.js';
 
 // Version for CLI output and server metadata
 const VERSION = '1.0.0';
@@ -460,11 +463,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // Time tracking tools
       case 'toggl_get_time_entries': {
         await ensureCache();
-        
+
         let entries: TimeEntry[];
-        
+
         if (args?.period) {
-          const range = getDateRange(args.period as any);
+          if (!isDatePeriod(args.period)) {
+            throw new Error(`Invalid period: ${args.period}. Must be one of: today, yesterday, week, lastWeek, month, lastMonth`);
+          }
+          const range = getDateRange(args.period);
           entries = await api.getTimeEntriesForDateRange(range.start, range.end);
         } else if (args?.start_date || args?.end_date) {
           const start = args?.start_date ? new Date(args.start_date as string) : new Date();
@@ -653,11 +659,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       
       case 'toggl_project_summary': {
         await ensureCache();
-        
+
         let entries: TimeEntry[];
-        
+
         if (args?.period) {
-          const range = getDateRange(args.period as any);
+          if (!isDatePeriod(args.period)) {
+            throw new Error(`Invalid period: ${args.period}. Must be one of: today, yesterday, week, lastWeek, month, lastMonth`);
+          }
+          const range = getDateRange(args.period);
           entries = await api.getTimeEntriesForDateRange(range.start, range.end);
         } else if (args?.start_date && args?.end_date) {
           const start = new Date(args.start_date as string);
@@ -697,11 +706,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       
       case 'toggl_workspace_summary': {
         await ensureCache();
-        
+
         let entries: TimeEntry[];
-        
+
         if (args?.period) {
-          const range = getDateRange(args.period as any);
+          if (!isDatePeriod(args.period)) {
+            throw new Error(`Invalid period: ${args.period}. Must be one of: today, yesterday, week, lastWeek, month, lastMonth`);
+          }
+          const range = getDateRange(args.period);
           entries = await api.getTimeEntriesForDateRange(range.start, range.end);
         } else if (args?.start_date && args?.end_date) {
           const start = new Date(args.start_date as string);
@@ -869,7 +881,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         let endTs: number | null = null;
 
         if (args?.period) {
-          const range = getDateRange(args.period as 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth');
+          if (!isDatePeriod(args.period)) {
+            throw new Error(`Invalid period: ${args.period}. Must be one of: today, yesterday, week, lastWeek, month, lastMonth`);
+          }
+          const range = getDateRange(args.period);
           startTs = range.start.getTime() / 1000;
           endTs = range.end.getTime() / 1000;
         } else {
@@ -877,27 +892,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             startTs = parseDate(args.start_date, 'start_date').getTime() / 1000;
           }
           if (args?.end_date) {
-            // Add 86400 seconds (1 day) to include the full end day
-            endTs = parseDate(args.end_date, 'end_date').getTime() / 1000 + 86400;
+            // Add SECONDS_PER_DAY to include the full end day
+            endTs = parseDate(args.end_date, 'end_date').getTime() / 1000 + SECONDS_PER_DAY;
           }
         }
 
         // Prepare filters
         const appFilter = args?.app ? String(args.app).toLowerCase() : null;
         const includeEvents = args?.include_events !== false;
-        const limit = Math.max(1, Math.min(Number(args?.limit) || 50, 1000));
+        const rawLimit = args?.limit;
+        const limit = Math.max(1, Math.min(typeof rawLimit === 'number' ? rawLimit : 50, 1000));
         const now = Math.floor(Date.now() / 1000);
 
         // Single-pass processing for performance
         const appSummary = new Map<string, number>();
-        const events: any[] = [];
+        const events: EnrichedTimelineEvent[] = [];
         let totalCount = 0;
         let totalSeconds = 0;
 
         for (const e of allEvents) {
-          // Date filtering
+          // Date filtering (use >= for end boundary to exclude events at exact boundary)
           if (startTs !== null && e.start_time < startTs) continue;
-          if (endTs !== null && e.start_time > endTs) continue;
+          if (endTs !== null && e.start_time >= endTs) continue;
 
           // App filtering (null-safe)
           const filename = e.filename ?? 'Unknown';

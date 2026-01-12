@@ -5,8 +5,12 @@ import type {
   ProjectSummary,
   WorkspaceSummary,
   ReportEntry,
-  DateRange
+  DateRange,
+  DatePeriod
 } from './types.js';
+
+// Constants
+export const SECONDS_PER_DAY = 86400;
 
 // Convert seconds to hours with decimal precision
 export function secondsToHours(seconds: number): number {
@@ -40,50 +44,54 @@ export function formatDate(dateStr: string): string {
 }
 
 // Get date range for various periods
-export function getDateRange(period: 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth'): DateRange {
+export function getDateRange(period: DatePeriod): DateRange {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  
+
   switch (period) {
     case 'today': {
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      return { start: today, end: tomorrow };
+      const start = new Date(today);
+      const end = new Date(today);
+      end.setDate(end.getDate() + 1);
+      return { start, end };
     }
-    
+
     case 'yesterday': {
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-      return { start: yesterday, end: today };
+      const start = new Date(today);
+      start.setDate(start.getDate() - 1);
+      const end = new Date(today);
+      return { start, end };
     }
-    
+
     case 'week': {
       const dayOfWeek = today.getDay();
       const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-      const monday = new Date(today.setDate(diff));
+      const monday = new Date(today);
+      monday.setDate(diff);
       const sunday = new Date(monday);
       sunday.setDate(sunday.getDate() + 6);
       sunday.setHours(23, 59, 59, 999);
       return { start: monday, end: sunday };
     }
-    
+
     case 'lastWeek': {
       const dayOfWeek = today.getDay();
       const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1) - 7;
-      const monday = new Date(today.setDate(diff));
+      const monday = new Date(today);
+      monday.setDate(diff);
       const sunday = new Date(monday);
       sunday.setDate(sunday.getDate() + 6);
       sunday.setHours(23, 59, 59, 999);
       return { start: monday, end: sunday };
     }
-    
+
     case 'month': {
       const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
       const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
       lastDay.setHours(23, 59, 59, 999);
       return { start: firstDay, end: lastDay };
     }
-    
+
     case 'lastMonth': {
       const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
       const lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
@@ -340,6 +348,11 @@ export function parseDate(input: unknown, paramName: string): Date {
   const date = new Date(input + 'T00:00:00');  // Parse as local midnight
   if (isNaN(date.getTime())) {
     throw new Error(`${paramName} is not a valid date`);
+  }
+  // Validate calendar date (reject "2024-02-30" which JS silently converts to March 1st)
+  const [year, month, day] = input.split('-').map(Number);
+  if (date.getFullYear() !== year || date.getMonth() + 1 !== month || date.getDate() !== day) {
+    throw new Error(`${paramName} is not a valid calendar date`);
   }
   return date;
 }

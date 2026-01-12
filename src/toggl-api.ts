@@ -319,6 +319,20 @@ export class TogglAPI {
       throw new Error('Timeline API returned invalid response format');
     }
 
-    return data as TimelineEvent[];
+    // Filter to only valid timeline events
+    return data.filter(isTimelineEvent);
   }
+}
+
+// Type guard for TimelineEvent validation
+function isTimelineEvent(value: unknown): value is TimelineEvent {
+  if (typeof value !== 'object' || value === null) return false;
+  const obj = value as Record<string, unknown>;
+  return (
+    typeof obj.id === 'number' &&
+    typeof obj.start_time === 'number' &&
+    (typeof obj.end_time === 'number' || obj.end_time === null) &&
+    typeof obj.desktop_id === 'string' &&
+    typeof obj.idle === 'boolean'
+  );
 }
