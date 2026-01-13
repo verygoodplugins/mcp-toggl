@@ -24,9 +24,30 @@ import {
 import type {
   CacheConfig,
   TimeEntry,
-  EnrichedTimelineEvent
+  EnrichedTimelineEvent,
+  UpdateTimeEntryRequest,
+  DateRange,
+  ProjectSummary,
+  WorkspaceSummary
 } from './types.js';
-import { isDatePeriod } from './types.js';
+import {
+  isDatePeriod,
+  isPositiveInteger,
+  isValidISODate,
+  isNumber,
+  isString,
+  isStringArray,
+  isBoolean,
+  getErrorMessage,
+  getErrorStack
+} from './types.js';
+
+// Helper to create consistent MCP tool responses
+function jsonResponse(data: unknown) {
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }]
+  };
+}
 import { SECONDS_PER_DAY } from './utils.js';
 
 // Version for CLI output and server metadata
@@ -95,13 +116,13 @@ if (process.env.TOGGL_API_TOKEN || process.env.TOGGL_TOKEN) {
 
 // Initialize configuration
 const cacheConfig: CacheConfig = {
-  ttl: parseInt(process.env.TOGGL_CACHE_TTL || '3600000'),
-  maxSize: parseInt(process.env.TOGGL_CACHE_SIZE || '1000'),
-  batchSize: parseInt(process.env.TOGGL_BATCH_SIZE || '100')
+  ttl: parseInt(process.env.TOGGL_CACHE_TTL || '3600000', 10),
+  maxSize: parseInt(process.env.TOGGL_CACHE_SIZE || '1000', 10),
+  batchSize: parseInt(process.env.TOGGL_BATCH_SIZE || '100', 10)
 };
 
-const defaultWorkspaceId = process.env.TOGGL_DEFAULT_WORKSPACE_ID 
-  ? parseInt(process.env.TOGGL_DEFAULT_WORKSPACE_ID)
+const defaultWorkspaceId = process.env.TOGGL_DEFAULT_WORKSPACE_ID
+  ? parseInt(process.env.TOGGL_DEFAULT_WORKSPACE_ID, 10)
   : undefined;
 
 // Initialize API and cache
@@ -109,19 +130,75 @@ const api = new TogglAPI(API_KEY);
 const cache = new CacheManager(cacheConfig);
 cache.setAPI(api);
 
-// Track if cache has been warmed
+// Track cache warming state with mutex to prevent race conditions
 let cacheWarmed = false;
+let cacheWarmingPromise: Promise<void> | null = null;
 
-// Helper to ensure cache is warm
+// Helper to ensure cache is warm (with race condition protection)
 async function ensureCache(): Promise<void> {
-  if (!cacheWarmed) {
-    try {
-      await cache.warmCache(defaultWorkspaceId);
-      cacheWarmed = true;
-    } catch (error) {
-      console.error('Failed to warm cache:', error);
-    }
+  if (cacheWarmed) return;
+
+  if (!cacheWarmingPromise) {
+    cacheWarmingPromise = cache.warmCache(defaultWorkspaceId)
+      .then(() => { cacheWarmed = true; })
+      .catch((error: unknown) => {
+        console.error('Failed to warm cache:', getErrorMessage(error));
+      })
+      .finally(() => { cacheWarmingPromise = null; });
   }
+
+  await cacheWarmingPromise;
+}
+
+// Helper to require and validate workspace ID
+function requireWorkspaceId(providedId: unknown): number {
+  if (isPositiveInteger(providedId)) return providedId;
+  if (defaultWorkspaceId) return defaultWorkspaceId;
+  throw new Error('Workspace ID required (set TOGGL_DEFAULT_WORKSPACE_ID or provide workspace_id)');
+}
+
+// Helper to resolve workspace ID, optionally fetching from existing entry
+async function resolveWorkspaceId(providedId: unknown, timeEntryId?: number): Promise<number> {
+  if (isPositiveInteger(providedId)) return providedId;
+
+  if (timeEntryId) {
+    const entry = await api.getTimeEntry(timeEntryId);
+    if (entry.workspace_id) return entry.workspace_id;
+  }
+
+  if (defaultWorkspaceId) return defaultWorkspaceId;
+
+  throw new Error('Workspace ID required (set TOGGL_DEFAULT_WORKSPACE_ID or provide workspace_id)');
+}
+
+// Helper to resolve date range from args
+function resolveDateRange(args: Record<string, unknown> | undefined): DateRange | null {
+  if (args?.period) {
+    if (!isDatePeriod(args.period)) {
+      throw new Error(`Invalid period: ${args.period}. Must be one of: today, yesterday, week, lastWeek, month, lastMonth`);
+    }
+    return getDateRange(args.period);
+  }
+
+  if (args?.start_date || args?.end_date) {
+    const startStr = args?.start_date;
+    const endStr = args?.end_date;
+    return {
+      start: isString(startStr) ? new Date(startStr) : new Date(),
+      end: isString(endStr) ? new Date(endStr) : new Date()
+    };
+  }
+
+  return null; // Use default behavior
+}
+
+// Helper to mask email for privacy
+function maskEmail(email: string | undefined): string | undefined {
+  if (!email) return undefined;
+  const [user, domain] = email.split('@');
+  if (!domain) return '***';
+  const maskedUser = user.length <= 2 ? '*'.repeat(user.length) : `${user[0]}***${user.slice(-1)}`;
+  return `${maskedUser}@${domain}`;
 }
 
 // Create MCP server
@@ -228,7 +305,115 @@ const tools: Tool[] = [
       required: []
     },
   },
-  
+  {
+    name: 'toggl_create_time_entry',
+    description: 'Create a new time entry with explicit start and stop times (not a running timer)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        description: {
+          type: 'string',
+          description: 'Description of the time entry'
+        },
+        start: {
+          type: 'string',
+          description: 'Start time (ISO 8601 format, e.g., 2026-01-10T09:00:00Z)'
+        },
+        stop: {
+          type: 'string',
+          description: 'Stop time (ISO 8601 format, e.g., 2026-01-10T17:00:00Z)'
+        },
+        workspace_id: {
+          type: 'number',
+          description: 'Workspace ID (uses default if not provided)'
+        },
+        project_id: {
+          type: 'number',
+          description: 'Project ID (optional)'
+        },
+        task_id: {
+          type: 'number',
+          description: 'Task ID (optional)'
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Tags for the entry'
+        },
+        billable: {
+          type: 'boolean',
+          description: 'Whether the entry is billable'
+        }
+      },
+      required: ['start', 'stop']
+    },
+  },
+  {
+    name: 'toggl_update_time_entry',
+    description: 'Update an existing time entry (description, project, tags, times, etc.)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        time_entry_id: {
+          type: 'number',
+          description: 'ID of the time entry to update'
+        },
+        workspace_id: {
+          type: 'number',
+          description: 'Workspace ID (uses default if not provided)'
+        },
+        description: {
+          type: 'string',
+          description: 'New description'
+        },
+        project_id: {
+          type: 'number',
+          description: 'New project ID (use null to remove project)'
+        },
+        task_id: {
+          type: 'number',
+          description: 'New task ID'
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'New tags (replaces existing tags)'
+        },
+        start: {
+          type: 'string',
+          description: 'New start time (ISO 8601 format)'
+        },
+        stop: {
+          type: 'string',
+          description: 'New stop time (ISO 8601 format)'
+        },
+        billable: {
+          type: 'boolean',
+          description: 'Whether the entry is billable'
+        }
+      },
+      required: ['time_entry_id']
+    },
+  },
+  {
+    name: 'toggl_delete_time_entry',
+    description: 'Delete a time entry',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        time_entry_id: {
+          type: 'number',
+          description: 'ID of the time entry to delete'
+        },
+        workspace_id: {
+          type: 'number',
+          description: 'Workspace ID (uses default if not provided)'
+        }
+      },
+      required: ['time_entry_id']
+    },
+  },
+
   // Reporting tools
   {
     name: 'toggl_daily_report',
@@ -437,27 +622,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'toggl_check_auth': {
         const me = await api.getMe();
         const workspaces = await api.getWorkspaces();
-        const maskEmail = (e?: string) => {
-          if (!e) return undefined as unknown as string;
-          const [user, domain] = e.split('@');
-          if (!domain) return '***';
-          const u = user.length <= 2 ? '*'.repeat(user.length) : `${user[0]}***${user.slice(-1)}`;
-          return `${u}@${domain}`;
-        };
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              authenticated: true,
-              user: {
-                id: (me as any).id,
-                email: maskEmail((me as any).email),
-                fullname: (me as any).fullname
-              },
-              workspaces: workspaces.map(w => ({ id: w.id, name: w.name })),
-            }, null, 2)
-          }]
-        };
+        return jsonResponse({
+          authenticated: true,
+          user: {
+            id: me.id,
+            email: maskEmail(me.email),
+            fullname: me.fullname
+          },
+          workspaces: workspaces.map(w => ({ id: w.id, name: w.name })),
+        });
       }
 
       // Time tracking tools
@@ -465,170 +638,213 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         await ensureCache();
 
         let entries: TimeEntry[];
+        const dateRange = resolveDateRange(args);
 
-        if (args?.period) {
-          if (!isDatePeriod(args.period)) {
-            throw new Error(`Invalid period: ${args.period}. Must be one of: today, yesterday, week, lastWeek, month, lastMonth`);
-          }
-          const range = getDateRange(args.period);
-          entries = await api.getTimeEntriesForDateRange(range.start, range.end);
-        } else if (args?.start_date || args?.end_date) {
-          const start = args?.start_date ? new Date(args.start_date as string) : new Date();
-          const end = args?.end_date ? new Date(args.end_date as string) : new Date();
-          entries = await api.getTimeEntriesForDateRange(start, end);
+        if (dateRange) {
+          entries = await api.getTimeEntriesForDateRange(dateRange.start, dateRange.end);
         } else {
           entries = await api.getTimeEntriesForToday();
         }
-        
+
         // Filter by workspace/project if specified
-        if (args?.workspace_id) {
+        if (isNumber(args?.workspace_id)) {
           entries = entries.filter(e => e.workspace_id === args.workspace_id);
         }
-        if (args?.project_id) {
+        if (isNumber(args?.project_id)) {
           entries = entries.filter(e => e.project_id === args.project_id);
         }
-        
+
         // Hydrate with names
         const hydrated = await cache.hydrateTimeEntries(entries);
-        
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({ 
-              count: hydrated.length,
-              entries: hydrated 
-            }, null, 2)
-          }]
-        };
+
+        return jsonResponse({
+          count: hydrated.length,
+          entries: hydrated
+        });
       }
       
       case 'toggl_get_current_entry': {
         const entry = await api.getCurrentTimeEntry();
-        
+
         if (!entry) {
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({ 
-                running: false,
-                message: 'No timer currently running' 
-              })
-            }]
-          };
+          return jsonResponse({
+            running: false,
+            message: 'No timer currently running'
+          });
         }
-        
+
         await ensureCache();
         const hydrated = await cache.hydrateTimeEntries([entry]);
-        
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({ 
-              running: true,
-              entry: hydrated[0] 
-            }, null, 2)
-          }]
-        };
+
+        return jsonResponse({
+          running: true,
+          entry: hydrated[0]
+        });
       }
-      
+
       case 'toggl_start_timer': {
-        const workspaceId = args?.workspace_id || defaultWorkspaceId;
-        if (!workspaceId) {
-          throw new Error('Workspace ID required (set TOGGL_DEFAULT_WORKSPACE_ID or provide workspace_id)');
-        }
-        
+        const workspaceId = requireWorkspaceId(args?.workspace_id);
+
         const entry = await api.startTimer(
-          workspaceId as number,
-          args?.description as string | undefined,
-          args?.project_id as number | undefined,
-          args?.task_id as number | undefined,
-          args?.tags as string[] | undefined
+          workspaceId,
+          isString(args?.description) ? args.description : undefined,
+          isPositiveInteger(args?.project_id) ? args.project_id : undefined,
+          isPositiveInteger(args?.task_id) ? args.task_id : undefined,
+          isStringArray(args?.tags) ? args.tags : undefined
         );
-        
+
         await ensureCache();
         const hydrated = await cache.hydrateTimeEntries([entry]);
-        
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({ 
-              success: true,
-              message: 'Timer started',
-              entry: hydrated[0] 
-            }, null, 2)
-          }]
-        };
+
+        return jsonResponse({
+          success: true,
+          message: 'Timer started',
+          entry: hydrated[0]
+        });
       }
-      
+
       case 'toggl_stop_timer': {
         const current = await api.getCurrentTimeEntry();
-        
+
         if (!current) {
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({ 
-                success: false,
-                message: 'No timer currently running' 
-              })
-            }]
-          };
+          return jsonResponse({
+            success: false,
+            message: 'No timer currently running'
+          });
         }
-        
+
         const stopped = await api.stopTimer(current.workspace_id, current.id);
-        
+
         await ensureCache();
         const hydrated = await cache.hydrateTimeEntries([stopped]);
-        
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({ 
-              success: true,
-              message: 'Timer stopped',
-              entry: hydrated[0] 
-            }, null, 2)
-          }]
-        };
+
+        return jsonResponse({
+          success: true,
+          message: 'Timer stopped',
+          entry: hydrated[0]
+        });
       }
-      
+
+      case 'toggl_create_time_entry': {
+        const workspaceId = requireWorkspaceId(args?.workspace_id);
+
+        // Validate required date fields
+        if (!isValidISODate(args?.start)) {
+          throw new Error('start is required and must be a valid ISO 8601 date (e.g., 2026-01-10T09:00:00Z)');
+        }
+        if (!isValidISODate(args?.stop)) {
+          throw new Error('stop is required and must be a valid ISO 8601 date (e.g., 2026-01-10T17:00:00Z)');
+        }
+
+        const startTime = new Date(args.start);
+        const stopTime = new Date(args.stop);
+        const durationSeconds = Math.floor((stopTime.getTime() - startTime.getTime()) / 1000);
+
+        if (durationSeconds <= 0) {
+          throw new Error('Stop time must be after start time');
+        }
+
+        const entry = await api.createTimeEntry(workspaceId, {
+          description: isString(args?.description) ? args.description : undefined,
+          project_id: isPositiveInteger(args?.project_id) ? args.project_id : undefined,
+          task_id: isPositiveInteger(args?.task_id) ? args.task_id : undefined,
+          tags: isStringArray(args?.tags) ? args.tags : undefined,
+          billable: isBoolean(args?.billable) ? args.billable : undefined,
+          start: startTime.toISOString(),
+          stop: stopTime.toISOString(),
+          duration: durationSeconds
+        });
+
+        await ensureCache();
+        const hydrated = await cache.hydrateTimeEntries([entry]);
+
+        return jsonResponse({
+          success: true,
+          message: 'Time entry created',
+          entry: hydrated[0]
+        });
+      }
+
+      case 'toggl_update_time_entry': {
+        // Validate time_entry_id
+        if (!isPositiveInteger(args?.time_entry_id)) {
+          throw new Error('time_entry_id must be a positive integer');
+        }
+        const timeEntryId = args.time_entry_id;
+
+        // Resolve workspace ID (may fetch entry to get workspace)
+        const workspaceId = await resolveWorkspaceId(args?.workspace_id, timeEntryId);
+
+        // Build update payload with only provided and valid fields
+        const updates: Partial<UpdateTimeEntryRequest> = {};
+        if (isString(args?.description)) updates.description = args.description;
+        if (args?.project_id !== undefined) {
+          // Allow null to clear project, or positive integer to set
+          updates.project_id = isPositiveInteger(args.project_id) ? args.project_id : undefined;
+        }
+        if (isPositiveInteger(args?.task_id)) updates.task_id = args.task_id;
+        if (isStringArray(args?.tags)) updates.tags = args.tags;
+        if (isBoolean(args?.billable)) updates.billable = args.billable;
+        if (isValidISODate(args?.start)) updates.start = args.start;
+        if (isValidISODate(args?.stop)) updates.stop = args.stop;
+
+        const updated = await api.updateTimeEntry(workspaceId, timeEntryId, updates);
+
+        await ensureCache();
+        const hydrated = await cache.hydrateTimeEntries([updated]);
+
+        return jsonResponse({
+          success: true,
+          message: 'Time entry updated',
+          entry: hydrated[0]
+        });
+      }
+
+      case 'toggl_delete_time_entry': {
+        // Validate time_entry_id
+        if (!isPositiveInteger(args?.time_entry_id)) {
+          throw new Error('time_entry_id must be a positive integer');
+        }
+        const timeEntryId = args.time_entry_id;
+
+        // Resolve workspace ID (may fetch entry to get workspace)
+        const workspaceId = await resolveWorkspaceId(args?.workspace_id, timeEntryId);
+
+        await api.deleteTimeEntry(workspaceId, timeEntryId);
+
+        return jsonResponse({
+          success: true,
+          message: `Time entry ${timeEntryId} deleted`
+        });
+      }
+
       // Reporting tools
       case 'toggl_daily_report': {
         await ensureCache();
-        
-        const date = args?.date ? new Date(args.date as string) : new Date();
+
+        const date = isString(args?.date) ? new Date(args.date) : new Date();
         const nextDay = new Date(date);
         nextDay.setDate(nextDay.getDate() + 1);
-        
+
         const entries = await api.getTimeEntriesForDateRange(date, nextDay);
         const hydrated = await cache.hydrateTimeEntries(entries);
-        
+
         const report = generateDailyReport(date.toISOString().split('T')[0], hydrated);
-        
+
         if (args?.format === 'text') {
-          return {
-            content: [{
-              type: 'text',
-              text: formatReportForDisplay(report)
-            }]
-          };
+          return jsonResponse(formatReportForDisplay(report));
         }
-        
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify(report, null, 2)
-          }]
-        };
+
+        return jsonResponse(report);
       }
-      
+
       case 'toggl_weekly_report': {
         await ensureCache();
-        
-        const weekOffset = (args?.week_offset as number) || 0;
+
+        const weekOffset = isNumber(args?.week_offset) ? args.week_offset : 0;
         const entries = await api.getTimeEntriesForWeek(weekOffset);
         const hydrated = await cache.hydrateTimeEntries(entries);
-        
+
         // Calculate week boundaries
         const today = new Date();
         const dayOfWeek = today.getDay();
@@ -637,239 +853,169 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         monday.setDate(monday.getDate() + (weekOffset * 7));
         const sunday = new Date(monday);
         sunday.setDate(sunday.getDate() + 6);
-        
+
         const report = generateWeeklyReport(monday, sunday, hydrated);
-        
+
         if (args?.format === 'text') {
-          return {
-            content: [{
-              type: 'text',
-              text: formatReportForDisplay(report)
-            }]
-          };
+          return jsonResponse(formatReportForDisplay(report));
         }
-        
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify(report, null, 2)
-          }]
-        };
+
+        return jsonResponse(report);
       }
-      
+
       case 'toggl_project_summary': {
         await ensureCache();
 
         let entries: TimeEntry[];
+        const dateRange = resolveDateRange(args);
 
-        if (args?.period) {
-          if (!isDatePeriod(args.period)) {
-            throw new Error(`Invalid period: ${args.period}. Must be one of: today, yesterday, week, lastWeek, month, lastMonth`);
-          }
-          const range = getDateRange(args.period);
-          entries = await api.getTimeEntriesForDateRange(range.start, range.end);
-        } else if (args?.start_date && args?.end_date) {
-          const start = new Date(args.start_date as string);
-          const end = new Date(args.end_date as string);
-          entries = await api.getTimeEntriesForDateRange(start, end);
+        if (dateRange) {
+          entries = await api.getTimeEntriesForDateRange(dateRange.start, dateRange.end);
         } else {
           // Default to current week
           entries = await api.getTimeEntriesForWeek(0);
         }
-        
-        if (args?.workspace_id) {
+
+        if (isNumber(args?.workspace_id)) {
           entries = entries.filter(e => e.workspace_id === args.workspace_id);
         }
-        
+
         const hydrated = await cache.hydrateTimeEntries(entries);
         const byProject = groupEntriesByProject(hydrated);
-        
-        const summaries: any[] = [];
+
+        const summaries: ProjectSummary[] = [];
         byProject.forEach((projectEntries, projectName) => {
           summaries.push(generateProjectSummary(projectName, projectEntries));
         });
-        
+
         // Sort by total hours descending
         summaries.sort((a, b) => b.total_seconds - a.total_seconds);
-        
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({ 
-              project_count: summaries.length,
-              total_hours: secondsToHours(summaries.reduce((t, s) => t + s.total_seconds, 0)),
-              projects: summaries 
-            }, null, 2)
-          }]
-        };
+
+        return jsonResponse({
+          project_count: summaries.length,
+          total_hours: secondsToHours(summaries.reduce((t, s) => t + s.total_seconds, 0)),
+          projects: summaries
+        });
       }
-      
+
       case 'toggl_workspace_summary': {
         await ensureCache();
 
         let entries: TimeEntry[];
+        const dateRange = resolveDateRange(args);
 
-        if (args?.period) {
-          if (!isDatePeriod(args.period)) {
-            throw new Error(`Invalid period: ${args.period}. Must be one of: today, yesterday, week, lastWeek, month, lastMonth`);
-          }
-          const range = getDateRange(args.period);
-          entries = await api.getTimeEntriesForDateRange(range.start, range.end);
-        } else if (args?.start_date && args?.end_date) {
-          const start = new Date(args.start_date as string);
-          const end = new Date(args.end_date as string);
-          entries = await api.getTimeEntriesForDateRange(start, end);
+        if (dateRange) {
+          entries = await api.getTimeEntriesForDateRange(dateRange.start, dateRange.end);
         } else {
           // Default to current week
           entries = await api.getTimeEntriesForWeek(0);
         }
-        
+
         const hydrated = await cache.hydrateTimeEntries(entries);
         const byWorkspace = groupEntriesByWorkspace(hydrated);
-        
-        const summaries: any[] = [];
+
+        const summaries: WorkspaceSummary[] = [];
         byWorkspace.forEach((wsEntries, wsName) => {
           const wsId = wsEntries[0]?.workspace_id || 0;
           summaries.push(generateWorkspaceSummary(wsName, wsId, wsEntries));
         });
-        
+
         // Sort by total hours descending
         summaries.sort((a, b) => b.total_seconds - a.total_seconds);
-        
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({ 
-              workspace_count: summaries.length,
-              total_hours: secondsToHours(summaries.reduce((t, s) => t + s.total_seconds, 0)),
-              workspaces: summaries 
-            }, null, 2)
-          }]
-        };
+
+        return jsonResponse({
+          workspace_count: summaries.length,
+          total_hours: secondsToHours(summaries.reduce((t, s) => t + s.total_seconds, 0)),
+          workspaces: summaries
+        });
       }
-      
+
       // Management tools
       case 'toggl_list_workspaces': {
         const workspaces = await api.getWorkspaces();
-        
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({ 
-              count: workspaces.length,
-              workspaces: workspaces.map(ws => ({
-                id: ws.id,
-                name: ws.name,
-                premium: ws.premium,
-                default_currency: ws.default_currency
-              }))
-            }, null, 2)
-          }]
-        };
+
+        return jsonResponse({
+          count: workspaces.length,
+          workspaces: workspaces.map(ws => ({
+            id: ws.id,
+            name: ws.name,
+            premium: ws.premium,
+            default_currency: ws.default_currency
+          }))
+        });
       }
-      
+
       case 'toggl_list_projects': {
-        const workspaceId = args?.workspace_id || defaultWorkspaceId;
-        if (!workspaceId) {
-          throw new Error('Workspace ID required (set TOGGL_DEFAULT_WORKSPACE_ID or provide workspace_id)');
-        }
-        
-        const projects = await api.getProjects(workspaceId as number);
-        
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({ 
-              workspace_id: workspaceId,
-              count: projects.length,
-              projects: projects.map(p => ({
-                id: p.id,
-                name: p.name,
-                active: p.active,
-                billable: p.billable,
-                color: p.color,
-                client_id: p.client_id
-              }))
-            }, null, 2)
-          }]
-        };
+        const workspaceId = requireWorkspaceId(args?.workspace_id);
+
+        const projects = await api.getProjects(workspaceId);
+
+        return jsonResponse({
+          workspace_id: workspaceId,
+          count: projects.length,
+          projects: projects.map(p => ({
+            id: p.id,
+            name: p.name,
+            active: p.active,
+            billable: p.billable,
+            color: p.color,
+            client_id: p.client_id
+          }))
+        });
       }
-      
+
       case 'toggl_list_clients': {
-        const workspaceId = args?.workspace_id || defaultWorkspaceId;
-        if (!workspaceId) {
-          throw new Error('Workspace ID required (set TOGGL_DEFAULT_WORKSPACE_ID or provide workspace_id)');
-        }
-        
-        const clients = await api.getClients(workspaceId as number);
-        
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({ 
-              workspace_id: workspaceId,
-              count: clients.length,
-              clients: clients.map(c => ({
-                id: c.id,
-                name: c.name,
-                archived: c.archived
-              }))
-            }, null, 2)
-          }]
-        };
+        const workspaceId = requireWorkspaceId(args?.workspace_id);
+
+        const clients = await api.getClients(workspaceId);
+
+        return jsonResponse({
+          workspace_id: workspaceId,
+          count: clients.length,
+          clients: clients.map(c => ({
+            id: c.id,
+            name: c.name,
+            archived: c.archived
+          }))
+        });
       }
       
       // Cache management
       case 'toggl_warm_cache': {
-        const workspaceId = (args?.workspace_id as number | undefined) || defaultWorkspaceId;
+        const workspaceId = isPositiveInteger(args?.workspace_id) ? args.workspace_id : defaultWorkspaceId;
         await cache.warmCache(workspaceId);
         cacheWarmed = true;
-        
+
         const stats = cache.getStats();
-        
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({ 
-              success: true,
-              message: 'Cache warmed successfully',
-              stats 
-            }, null, 2)
-          }]
-        };
+
+        return jsonResponse({
+          success: true,
+          message: 'Cache warmed successfully',
+          stats
+        });
       }
-      
+
       case 'toggl_cache_stats': {
         const stats = cache.getStats();
         const hitRate = stats.hits + stats.misses > 0
           ? Math.round((stats.hits / (stats.hits + stats.misses)) * 100)
           : 0;
-        
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({ 
-              ...stats,
-              hit_rate: `${hitRate}%`,
-              cache_warmed: cacheWarmed
-            }, null, 2)
-          }]
-        };
+
+        return jsonResponse({
+          ...stats,
+          hit_rate: `${hitRate}%`,
+          cache_warmed: cacheWarmed
+        });
       }
-      
+
       case 'toggl_clear_cache': {
         cache.clearCache();
         cacheWarmed = false;
 
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              message: 'Cache cleared successfully'
-            })
-          }]
-        };
+        return jsonResponse({
+          success: true,
+          message: 'Cache cleared successfully'
+        });
       }
 
       // Timeline (desktop activity tracking)
@@ -945,35 +1091,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           [...appSummary.entries()].sort((a, b) => b[1] - a[1])
         );
 
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              total_events: totalCount,
-              returned_events: events.length,
-              truncated: totalCount > events.length,
-              total_seconds: totalSeconds,
-              summary: sortedSummary,
-              ...(includeEvents && { events })
-            }, null, 2)
-          }]
-        };
+        return jsonResponse({
+          total_events: totalCount,
+          returned_events: events.length,
+          truncated: totalCount > events.length,
+          total_seconds: totalSeconds,
+          summary: sortedSummary,
+          ...(includeEvents && { events })
+        });
       }
 
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
-  } catch (error: any) {
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({ 
-          error: true,
-          message: error.message || 'An error occurred',
-          details: error.stack 
-        }, null, 2)
-      }]
-    };
+  } catch (error: unknown) {
+    return jsonResponse({
+      error: true,
+      message: getErrorMessage(error),
+      details: getErrorStack(error)
+    });
   }
 });
 

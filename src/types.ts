@@ -280,6 +280,56 @@ export function isDatePeriod(value: unknown): value is DatePeriod {
     ['today', 'yesterday', 'week', 'lastWeek', 'month', 'lastMonth'].includes(value);
 }
 
+// Runtime type guards for MCP argument validation
+export function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
+export function isNumber(value: unknown): value is number {
+  return typeof value === 'number' && !Number.isNaN(value);
+}
+
+export function isPositiveInteger(value: unknown): value is number {
+  return isNumber(value) && Number.isInteger(value) && value > 0;
+}
+
+export function isBoolean(value: unknown): value is boolean {
+  return typeof value === 'boolean';
+}
+
+export function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(v => typeof v === 'string');
+}
+
+export function isValidISODate(value: unknown): value is string {
+  if (!isString(value)) return false;
+  const date = new Date(value);
+  return !isNaN(date.getTime());
+}
+
+// MCP tool response type
+export interface McpToolResponse {
+  content: { type: 'text'; text: string }[];
+}
+
+// Helper to create consistent MCP responses
+export function createMcpResponse(data: unknown): McpToolResponse {
+  return {
+    content: [{ type: 'text', text: JSON.stringify(data, null, 2) }]
+  };
+}
+
+// Helper to get error message from unknown error
+export function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+export function getErrorStack(error: unknown): string | undefined {
+  if (error instanceof Error) return error.stack;
+  return undefined;
+}
+
 export interface GroupedEntries {
   [key: string]: HydratedTimeEntry[];
 }

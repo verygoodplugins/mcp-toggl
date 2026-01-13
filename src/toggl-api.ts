@@ -37,6 +37,11 @@ export class TogglAPI {
     retries = 3
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
+
+    // Debug logging for troubleshooting
+    if (process.env.TOGGL_DEBUG === 'true') {
+      console.error(`[TOGGL API] ${method} ${url}`);
+    }
     
     for (let i = 0; i < retries; i++) {
       try {

@@ -15,6 +15,7 @@
     "start": "node dist/index.js",
     "setup": "node scripts/setup.js",
     "test": "tsx src/test.ts",
+    "test:crud": "tsx src/test-crud.ts",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts",
     "prepublishOnly": "npm run build"
