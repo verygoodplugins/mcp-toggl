@@ -183,9 +183,11 @@ function resolveDateRange(args: Record<string, unknown> | undefined): DateRange 
   if (args?.start_date || args?.end_date) {
     const startStr = args?.start_date;
     const endStr = args?.end_date;
-    const start = isString(startStr) ? new Date(startStr) : new Date();
-    const end = isString(endStr) ? new Date(endStr) : new Date();
-    if (start > end) {
+    const start = isString(startStr) ? parseDate(startStr, 'start_date') : new Date();
+    const parsedEnd = isString(endStr) ? parseDate(endStr, 'end_date') : new Date();
+    // Advance end to next day boundary so the end_date is inclusive
+    const end = new Date(parsedEnd.getTime() + SECONDS_PER_DAY * 1000);
+    if (start > parsedEnd) {
       throw new Error('start_date must be before or equal to end_date');
     }
     return { start, end };
@@ -782,7 +784,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (isString(args?.description)) updates.description = args.description;
         if (args?.project_id !== undefined) {
           // Allow null to explicitly clear project, or positive integer to set
-          updates.project_id = isPositiveInteger(args.project_id) ? args.project_id : null;
+          if (args.project_id === null) {
+            updates.project_id = null;
+          } else if (isPositiveInteger(args.project_id)) {
+            updates.project_id = args.project_id;
+          } else {
+            throw new Error('project_id must be null (to clear) or a positive integer');
+          }
         }
         if (isPositiveInteger(args?.task_id)) updates.task_id = args.task_id;
         if (isStringArray(args?.tags)) updates.tags = args.tags;
@@ -824,7 +832,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'toggl_daily_report': {
         await ensureCache();
 
-        const date = isString(args?.date) ? new Date(args.date) : new Date();
+        const date = isString(args?.date) ? parseDate(args.date, 'date') : new Date();
         const nextDay = new Date(date);
         nextDay.setDate(nextDay.getDate() + 1);
 
@@ -1086,8 +1094,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             events.push({
               ...e,
               filename,
-              start: new Date(e.start_time * 1000).toISOString(),
-              end: new Date(eventEnd * 1000).toISOString(),
+              start: new Date(clippedStart * 1000).toISOString(),
+              end: new Date(clippedEnd * 1000).toISOString(),
               duration_seconds: duration
             });
           }
