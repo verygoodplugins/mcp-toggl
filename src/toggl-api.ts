@@ -300,32 +300,52 @@ export class TogglAPI {
   // This is an undocumented endpoint that may change without notice
   async getTimeline(): Promise<TimelineEvent[]> {
     const url = `${this.timelineBaseUrl}/timeline`;
+    const maxRetries = 3;
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: this.headers
-    });
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: this.headers
+        });
 
-    if (!response.ok) {
-      const text = await response.text();
-      if (response.status === 401 || response.status === 403) {
-        throw new Error(
-          `Timeline authentication failed (${response.status}). ` +
-          `Verify TOGGL_API_KEY is correct. Server response: ${text}`
-        );
+        // Handle rate limiting with retry
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After');
+          const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : (attempt + 1) * 2000;
+          console.error(`Timeline rate limited. Retrying after ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        if (!response.ok) {
+          const text = await response.text();
+          if (response.status === 401 || response.status === 403) {
+            throw new Error(
+              `Timeline authentication failed (${response.status}). ` +
+              `Verify TOGGL_API_KEY is correct. Server response: ${text}`
+            );
+          }
+          throw new Error(`Timeline API error (${response.status}): ${text}`);
+        }
+
+        const data = await response.json();
+
+        // Validate response is array
+        if (!Array.isArray(data)) {
+          throw new Error('Timeline API returned invalid response format');
+        }
+
+        // Filter to only valid timeline events
+        return data.filter(isTimelineEvent);
+      } catch (error) {
+        if (attempt === maxRetries - 1) throw error;
+        // Wait before retry on network errors
+        await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 1000));
       }
-      throw new Error(`Timeline API error (${response.status}): ${text}`);
     }
 
-    const data = await response.json();
-
-    // Validate response is array
-    if (!Array.isArray(data)) {
-      throw new Error('Timeline API returned invalid response format');
-    }
-
-    // Filter to only valid timeline events
-    return data.filter(isTimelineEvent);
+    throw new Error('Max retries reached for timeline');
   }
 }
 
@@ -338,6 +358,8 @@ function isTimelineEvent(value: unknown): value is TimelineEvent {
     typeof obj.start_time === 'number' &&
     (typeof obj.end_time === 'number' || obj.end_time === null) &&
     typeof obj.desktop_id === 'string' &&
-    typeof obj.idle === 'boolean'
+    typeof obj.idle === 'boolean' &&
+    (typeof obj.filename === 'string' || obj.filename === null) &&
+    (typeof obj.title === 'string' || obj.title === null)
   );
 }

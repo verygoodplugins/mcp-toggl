@@ -220,7 +220,7 @@ export interface CreateTimeEntryRequest {
 }
 
 export interface UpdateTimeEntryRequest {
-  project_id?: number;
+  project_id?: number | null;  // null to explicitly clear the project
   task_id?: number;
   description?: string;
   tags?: string[];
@@ -305,18 +305,6 @@ export function isValidISODate(value: unknown): value is string {
   if (!isString(value)) return false;
   const date = new Date(value);
   return !isNaN(date.getTime());
-}
-
-// MCP tool response type
-export interface McpToolResponse {
-  content: { type: 'text'; text: string }[];
-}
-
-// Helper to create consistent MCP responses
-export function createMcpResponse(data: unknown): McpToolResponse {
-  return {
-    content: [{ type: 'text', text: JSON.stringify(data, null, 2) }]
-  };
 }
 
 // Helper to get error message from unknown error

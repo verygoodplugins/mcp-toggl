@@ -19,7 +19,8 @@ import {
   groupEntriesByWorkspace,
   generateProjectSummary,
   generateWorkspaceSummary,
-  parseDate
+  parseDate,
+  SECONDS_PER_DAY
 } from './utils.js';
 import type {
   CacheConfig,
@@ -48,7 +49,6 @@ function jsonResponse(data: unknown) {
     content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }]
   };
 }
-import { SECONDS_PER_DAY } from './utils.js';
 
 // Version for CLI output and server metadata
 const VERSION = '1.0.0';
@@ -183,10 +183,12 @@ function resolveDateRange(args: Record<string, unknown> | undefined): DateRange 
   if (args?.start_date || args?.end_date) {
     const startStr = args?.start_date;
     const endStr = args?.end_date;
-    return {
-      start: isString(startStr) ? new Date(startStr) : new Date(),
-      end: isString(endStr) ? new Date(endStr) : new Date()
-    };
+    const start = isString(startStr) ? new Date(startStr) : new Date();
+    const end = isString(endStr) ? new Date(endStr) : new Date();
+    if (start > end) {
+      throw new Error('start_date must be before or equal to end_date');
+    }
+    return { start, end };
   }
 
   return null; // Use default behavior
@@ -779,8 +781,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const updates: Partial<UpdateTimeEntryRequest> = {};
         if (isString(args?.description)) updates.description = args.description;
         if (args?.project_id !== undefined) {
-          // Allow null to clear project, or positive integer to set
-          updates.project_id = isPositiveInteger(args.project_id) ? args.project_id : undefined;
+          // Allow null to explicitly clear project, or positive integer to set
+          updates.project_id = isPositiveInteger(args.project_id) ? args.project_id : null;
         }
         if (isPositiveInteger(args?.task_id)) updates.task_id = args.task_id;
         if (isStringArray(args?.tags)) updates.tags = args.tags;
@@ -1057,17 +1059,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         let totalSeconds = 0;
 
         for (const e of allEvents) {
-          // Date filtering (use >= for end boundary to exclude events at exact boundary)
-          if (startTs !== null && e.start_time < startTs) continue;
+          // Calculate effective end time (handle null end_time for active events)
+          const eventEnd = e.end_time ?? now;
+
+          // Date filtering: include events that OVERLAP with the range
+          // An event overlaps if: eventEnd >= startTs && start_time <= endTs
+          if (startTs !== null && eventEnd < startTs) continue;
           if (endTs !== null && e.start_time >= endTs) continue;
 
           // App filtering (null-safe)
           const filename = e.filename ?? 'Unknown';
           if (appFilter && !filename.toLowerCase().includes(appFilter)) continue;
 
-          // Calculate duration (handle null end_time for active events)
-          const endTime = e.end_time ?? now;
-          const duration = Math.max(0, endTime - e.start_time);
+          // Clip duration to the requested range bounds
+          const clippedStart = startTs !== null ? Math.max(e.start_time, startTs) : e.start_time;
+          const clippedEnd = endTs !== null ? Math.min(eventEnd, endTs) : eventEnd;
+          const duration = Math.max(0, clippedEnd - clippedStart);
 
           // Update summary (from ALL matching events)
           totalCount++;
@@ -1080,7 +1087,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               ...e,
               filename,
               start: new Date(e.start_time * 1000).toISOString(),
-              end: new Date(endTime * 1000).toISOString(),
+              end: new Date(eventEnd * 1000).toISOString(),
               duration_seconds: duration
             });
           }
@@ -1094,7 +1101,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return jsonResponse({
           total_events: totalCount,
           returned_events: events.length,
-          truncated: totalCount > events.length,
+          truncated: includeEvents && totalCount > events.length,
           total_seconds: totalSeconds,
           summary: sortedSummary,
           ...(includeEvents && { events })
@@ -1108,7 +1115,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return jsonResponse({
       error: true,
       message: getErrorMessage(error),
-      details: getErrorStack(error)
+      ...(process.env.TOGGL_DEBUG === 'true' && { details: getErrorStack(error) })
     });
   }
 });
