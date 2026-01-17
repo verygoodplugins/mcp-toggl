@@ -52,8 +52,8 @@ export interface Project {
   rate_last_updated?: string;
   currency?: string;
   recurring?: boolean;
-  recurring_parameters?: any;
-  current_period?: any;
+  recurring_parameters?: unknown;
+  current_period?: unknown;
   fixed_fee?: number;
   actual_hours?: number;
   wid?: number;
@@ -220,7 +220,7 @@ export interface CreateTimeEntryRequest {
 }
 
 export interface UpdateTimeEntryRequest {
-  project_id?: number;
+  project_id?: number | null;  // null to explicitly clear the project
   task_id?: number;
   description?: string;
   tags?: string[];
@@ -255,11 +255,11 @@ export interface TogglError {
   code: string;
   message: string;
   tip?: string;
-  details?: any;
+  details?: Record<string, unknown>;
 }
 
 // Tool response types
-export interface ToolResponse<T = any> {
+export interface ToolResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: TogglError;
@@ -271,6 +271,72 @@ export interface DateRange {
   end: Date;
 }
 
+// Date period literals for filtering
+export type DatePeriod = 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth';
+
+// Type guard for DatePeriod
+export function isDatePeriod(value: unknown): value is DatePeriod {
+  return typeof value === 'string' &&
+    ['today', 'yesterday', 'week', 'lastWeek', 'month', 'lastMonth'].includes(value);
+}
+
+// Runtime type guards for MCP argument validation
+export function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
+export function isNumber(value: unknown): value is number {
+  return typeof value === 'number' && !Number.isNaN(value);
+}
+
+export function isPositiveInteger(value: unknown): value is number {
+  return isNumber(value) && Number.isInteger(value) && value > 0;
+}
+
+export function isBoolean(value: unknown): value is boolean {
+  return typeof value === 'boolean';
+}
+
+export function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(v => typeof v === 'string');
+}
+
+export function isValidISODate(value: unknown): value is string {
+  if (!isString(value)) return false;
+  const date = new Date(value);
+  return !isNaN(date.getTime());
+}
+
+// Helper to get error message from unknown error
+export function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+export function getErrorStack(error: unknown): string | undefined {
+  if (error instanceof Error) return error.stack;
+  return undefined;
+}
+
 export interface GroupedEntries {
   [key: string]: HydratedTimeEntry[];
+}
+
+// Timeline interfaces (for desktop app activity tracking)
+export interface TimelineEvent {
+  id: number;
+  start_time: number;       // Unix timestamp
+  end_time: number | null;  // Unix timestamp (null if currently active)
+  desktop_id: string;
+  filename: string | null;  // Application name (may be null)
+  title: string | null;     // Window title (may be null)
+  idle: boolean;
+}
+
+// Enriched timeline event with computed fields for API response
+export interface EnrichedTimelineEvent extends TimelineEvent {
+  filename: string;         // Normalized (never null, defaults to 'Unknown')
+  start: string;            // ISO string representation
+  end: string;              // ISO string representation
+  duration_seconds: number; // Computed duration
 }
