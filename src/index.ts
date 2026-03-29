@@ -211,8 +211,63 @@ const tools: Tool[] = [
           type: 'array',
           items: { type: 'string' },
           description: 'Tags for the entry'
+        },
+        billable: {
+          type: 'boolean',
+          description: 'Whether the time entry is billable (requires Toggl paid plan)'
         }
       }
+    },
+  },
+  {
+    name: 'toggl_update_entry',
+    description: 'Update an existing time entry (change billable status, description, project, tags, etc.)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        time_entry_id: {
+          type: 'number',
+          description: 'The ID of the time entry to update'
+        },
+        workspace_id: {
+          type: 'number',
+          description: 'Workspace ID the time entry belongs to'
+        },
+        description: {
+          type: 'string',
+          description: 'New description'
+        },
+        project_id: {
+          type: 'number',
+          description: 'New project ID'
+        },
+        task_id: {
+          type: 'number',
+          description: 'New task ID'
+        },
+        billable: {
+          type: 'boolean',
+          description: 'Whether the time entry is billable'
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'New tags (replaces existing tags)'
+        },
+        start: {
+          type: 'string',
+          description: 'New start time (ISO 8601 format)'
+        },
+        stop: {
+          type: 'string',
+          description: 'New stop time (ISO 8601 format)'
+        },
+        duration: {
+          type: 'number',
+          description: 'New duration in seconds'
+        }
+      },
+      required: ['time_entry_id', 'workspace_id']
     },
   },
   {
@@ -499,7 +554,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           args?.description as string | undefined,
           args?.project_id as number | undefined,
           args?.task_id as number | undefined,
-          args?.tags as string[] | undefined
+          args?.tags as string[] | undefined,
+          args?.billable as boolean | undefined
         );
         
         await ensureCache();
@@ -549,6 +605,40 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
       
+      case 'toggl_update_entry': {
+        const workspaceId = args?.workspace_id as number;
+        const timeEntryId = args?.time_entry_id as number;
+        if (!workspaceId || !timeEntryId) {
+          throw new Error('Both workspace_id and time_entry_id are required');
+        }
+
+        const updates: Record<string, any> = {};
+        if (args?.description !== undefined) updates.description = args.description;
+        if (args?.project_id !== undefined) updates.project_id = args.project_id;
+        if (args?.task_id !== undefined) updates.task_id = args.task_id;
+        if (args?.billable !== undefined) updates.billable = args.billable;
+        if (args?.tags !== undefined) updates.tags = args.tags;
+        if (args?.start !== undefined) updates.start = args.start;
+        if (args?.stop !== undefined) updates.stop = args.stop;
+        if (args?.duration !== undefined) updates.duration = args.duration;
+
+        const updated = await api.updateTimeEntry(workspaceId, timeEntryId, updates);
+
+        await ensureCache();
+        const hydrated = await cache.hydrateTimeEntries([updated]);
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              message: 'Time entry updated',
+              entry: hydrated[0]
+            }, null, 2)
+          }]
+        };
+      }
+
       // Reporting tools
       case 'toggl_daily_report': {
         await ensureCache();

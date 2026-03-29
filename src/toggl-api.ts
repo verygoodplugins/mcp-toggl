@@ -205,16 +205,17 @@ export class TogglAPI {
     await this.request<void>('DELETE', `/workspaces/${workspaceId}/time_entries/${timeEntryId}`);
   }
   
-  async startTimer(workspaceId: number, description?: string, projectId?: number, taskId?: number, tags?: string[]): Promise<TimeEntry> {
+  async startTimer(workspaceId: number, description?: string, projectId?: number, taskId?: number, tags?: string[], billable?: boolean): Promise<TimeEntry> {
     const entry: Partial<CreateTimeEntryRequest> = {
       description,
       project_id: projectId,
       task_id: taskId,
       tags,
+      billable,
       start: new Date().toISOString(),
       duration: -1 // Negative duration indicates running timer
     };
-    
+
     return this.createTimeEntry(workspaceId, entry);
   }
   
