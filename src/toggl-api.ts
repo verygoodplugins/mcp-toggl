@@ -225,20 +225,28 @@ export class TogglAPI {
   
   // Bulk operations for efficiency
   async getTimeEntriesForDateRange(startDate: Date, endDate: Date): Promise<TimeEntry[]> {
-    const params: TimeEntriesRequest = {
-      start_date: startDate.toISOString().split('T')[0],
-      end_date: endDate.toISOString().split('T')[0]
+    // Use local date strings to avoid UTC timezone offset issues
+    const localStr = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
     };
-    
+
+    const params: TimeEntriesRequest = {
+      start_date: localStr(startDate),
+      end_date: localStr(endDate)
+    };
+
     return this.getTimeEntries(params);
   }
-  
+
   async getTimeEntriesForToday(): Promise<TimeEntry[]> {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    
+
     return this.getTimeEntriesForDateRange(today, tomorrow);
   }
   

@@ -225,6 +225,55 @@ const tools: Tool[] = [
     },
   },
   
+  // Update tools
+  {
+    name: 'toggl_update_time_entry',
+    description: 'Update an existing time entry. Can change project, description, tags, start/stop times, etc.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entry_id: {
+          type: 'number',
+          description: 'The time entry ID to update'
+        },
+        workspace_id: {
+          type: 'number',
+          description: 'Workspace ID (uses default if not provided)'
+        },
+        project_id: {
+          type: ['number', 'null'],
+          description: 'Project ID to assign (null to remove project)'
+        },
+        description: {
+          type: 'string',
+          description: 'New description'
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'New tags (replaces existing tags)'
+        },
+        start: {
+          type: 'string',
+          description: 'New start time (ISO 8601)'
+        },
+        stop: {
+          type: 'string',
+          description: 'New stop time (ISO 8601)'
+        },
+        duration: {
+          type: 'number',
+          description: 'New duration in seconds'
+        },
+        billable: {
+          type: 'boolean',
+          description: 'Whether the entry is billable'
+        }
+      },
+      required: ['entry_id']
+    },
+  },
+
   // Reporting tools
   {
     name: 'toggl_daily_report',
@@ -549,6 +598,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
       
+      // Update tools
+      case 'toggl_update_time_entry': {
+        const workspaceId = (args?.workspace_id as number) || defaultWorkspaceId;
+        if (!workspaceId) {
+          throw new Error('Workspace ID required (set TOGGL_DEFAULT_WORKSPACE_ID or provide workspace_id)');
+        }
+        const entryId = args?.entry_id as number;
+        if (!entryId) {
+          throw new Error('entry_id is required');
+        }
+
+        const updates: Record<string, any> = {};
+        if (args?.project_id !== undefined) updates.project_id = args.project_id;
+        if (args?.description !== undefined) updates.description = args.description;
+        if (args?.tags !== undefined) updates.tags = args.tags;
+        if (args?.start !== undefined) updates.start = args.start;
+        if (args?.stop !== undefined) updates.stop = args.stop;
+        if (args?.duration !== undefined) updates.duration = args.duration;
+        if (args?.billable !== undefined) updates.billable = args.billable;
+
+        const updated = await api.updateTimeEntry(workspaceId, entryId, updates);
+
+        await ensureCache();
+        const hydrated = await cache.hydrateTimeEntries([updated]);
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              message: 'Time entry updated',
+              entry: hydrated[0]
+            }, null, 2)
+          }]
+        };
+      }
+
       // Reporting tools
       case 'toggl_daily_report': {
         await ensureCache();

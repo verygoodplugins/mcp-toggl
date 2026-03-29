@@ -39,59 +39,75 @@ export function formatDate(dateStr: string): string {
   });
 }
 
+// Get local date string (YYYY-MM-DD) to avoid UTC timezone issues
+function localDateStr(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+// Create a local midnight Date from an offset in days from today
+function localDay(offsetDays: number): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + offsetDays);
+  return d;
+}
+
 // Get date range for various periods
 export function getDateRange(period: 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth'): DateRange {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  
+
   switch (period) {
     case 'today': {
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrow = localDay(1);
       return { start: today, end: tomorrow };
     }
-    
+
     case 'yesterday': {
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterday = localDay(-1);
       return { start: yesterday, end: today };
     }
-    
+
     case 'week': {
       const dayOfWeek = today.getDay();
       const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-      const monday = new Date(today.setDate(diff));
+      const monday = new Date(today);
+      monday.setDate(diff);
+      monday.setHours(0, 0, 0, 0);
       const sunday = new Date(monday);
-      sunday.setDate(sunday.getDate() + 6);
-      sunday.setHours(23, 59, 59, 999);
+      sunday.setDate(sunday.getDate() + 7);
       return { start: monday, end: sunday };
     }
-    
+
     case 'lastWeek': {
       const dayOfWeek = today.getDay();
       const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1) - 7;
-      const monday = new Date(today.setDate(diff));
+      const monday = new Date(today);
+      monday.setDate(diff);
+      monday.setHours(0, 0, 0, 0);
       const sunday = new Date(monday);
-      sunday.setDate(sunday.getDate() + 6);
-      sunday.setHours(23, 59, 59, 999);
+      sunday.setDate(sunday.getDate() + 7);
       return { start: monday, end: sunday };
     }
-    
+
     case 'month': {
       const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-      const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      lastDay.setHours(23, 59, 59, 999);
+      const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 1);
       return { start: firstDay, end: lastDay };
     }
-    
+
     case 'lastMonth': {
       const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      const lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
-      lastDay.setHours(23, 59, 59, 999);
+      const lastDay = new Date(today.getFullYear(), today.getMonth(), 1);
       return { start: firstDay, end: lastDay };
     }
   }
 }
+
+export { localDateStr };
 
 // Group time entries by date
 export function groupEntriesByDate(entries: HydratedTimeEntry[]): Map<string, HydratedTimeEntry[]> {
