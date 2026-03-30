@@ -377,7 +377,23 @@ export class CacheManager {
     
     return hydrated;
   }
-  
+
+  // Invalidate a single tag from cache
+  invalidateTag(tagId: number): void {
+    this.tags.delete(tagId);
+  }
+
+  // Invalidate all tags for a workspace (used after create/update/delete)
+  invalidateTagsForWorkspace(workspaceId: number): void {
+    const toDelete: number[] = [];
+    this.tags.forEach((entry, key) => {
+      if (entry.data.workspace_id === workspaceId) {
+        toDelete.push(key);
+      }
+    });
+    toDelete.forEach(key => this.tags.delete(key));
+  }
+
   // Clear cache
   clearCache(): void {
     this.workspaces.clear();
