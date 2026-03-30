@@ -134,11 +134,17 @@ const server = new Server(
 );
 
 // Define tool schemas
+// Common annotation sets
+const readOnlyRemote = { readOnlyHint: true, idempotentHint: true, openWorldHint: true };
+const writeRemote = { readOnlyHint: false, openWorldHint: true };
+const readOnlyLocal = { readOnlyHint: true, idempotentHint: true, openWorldHint: false };
+
 const tools: Tool[] = [
   // Health/authentication
   {
     name: 'toggl_check_auth',
     description: 'Verify Toggl API connectivity and authentication is valid',
+    annotations: readOnlyRemote,
     inputSchema: {
       type: 'object',
       properties: {},
@@ -149,6 +155,7 @@ const tools: Tool[] = [
   {
     name: 'toggl_get_time_entries',
     description: 'Get time entries with optional date range filters. Returns hydrated entries with project/workspace names.',
+    annotations: readOnlyRemote,
     inputSchema: {
       type: 'object',
       properties: {
@@ -179,6 +186,7 @@ const tools: Tool[] = [
   {
     name: 'toggl_get_current_entry',
     description: 'Get the currently running time entry, if any',
+    annotations: readOnlyRemote,
     inputSchema: {
       type: 'object',
       properties: {},
@@ -188,6 +196,7 @@ const tools: Tool[] = [
   {
     name: 'toggl_start_timer',
     description: 'Start a new time entry timer',
+    annotations: writeRemote,
     inputSchema: {
       type: 'object',
       properties: {
@@ -218,17 +227,19 @@ const tools: Tool[] = [
   {
     name: 'toggl_stop_timer',
     description: 'Stop the currently running timer',
+    annotations: { ...writeRemote, idempotentHint: true },
     inputSchema: {
       type: 'object',
       properties: {},
       required: []
     },
   },
-  
+
   // Reporting tools
   {
     name: 'toggl_daily_report',
     description: 'Generate a daily report with hours by project and workspace',
+    annotations: readOnlyRemote,
     inputSchema: {
       type: 'object',
       properties: {
@@ -247,6 +258,7 @@ const tools: Tool[] = [
   {
     name: 'toggl_weekly_report',
     description: 'Generate a weekly report with daily breakdown and project summaries',
+    annotations: readOnlyRemote,
     inputSchema: {
       type: 'object',
       properties: {
@@ -265,6 +277,7 @@ const tools: Tool[] = [
   {
     name: 'toggl_project_summary',
     description: 'Get total hours per project for a date range',
+    annotations: readOnlyRemote,
     inputSchema: {
       type: 'object',
       properties: {
@@ -291,6 +304,7 @@ const tools: Tool[] = [
   {
     name: 'toggl_workspace_summary',
     description: 'Get total hours per workspace for a date range',
+    annotations: readOnlyRemote,
     inputSchema: {
       type: 'object',
       properties: {
@@ -310,11 +324,12 @@ const tools: Tool[] = [
       }
     },
   },
-  
+
   // Management tools
   {
     name: 'toggl_list_workspaces',
     description: 'List all available workspaces',
+    annotations: readOnlyRemote,
     inputSchema: {
       type: 'object',
       properties: {},
@@ -324,6 +339,7 @@ const tools: Tool[] = [
   {
     name: 'toggl_list_projects',
     description: 'List projects for a workspace',
+    annotations: readOnlyRemote,
     inputSchema: {
       type: 'object',
       properties: {
@@ -337,6 +353,7 @@ const tools: Tool[] = [
   {
     name: 'toggl_list_clients',
     description: 'List clients for a workspace',
+    annotations: readOnlyRemote,
     inputSchema: {
       type: 'object',
       properties: {
@@ -347,11 +364,12 @@ const tools: Tool[] = [
       }
     },
   },
-  
+
   // Cache management
   {
     name: 'toggl_warm_cache',
     description: 'Pre-fetch and cache workspace, project, and client data for better performance',
+    annotations: readOnlyLocal,
     inputSchema: {
       type: 'object',
       properties: {
@@ -365,6 +383,7 @@ const tools: Tool[] = [
   {
     name: 'toggl_cache_stats',
     description: 'Get cache statistics and performance metrics',
+    annotations: readOnlyLocal,
     inputSchema: {
       type: 'object',
       properties: {},
@@ -374,6 +393,7 @@ const tools: Tool[] = [
   {
     name: 'toggl_clear_cache',
     description: 'Clear all cached data',
+    annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {},
