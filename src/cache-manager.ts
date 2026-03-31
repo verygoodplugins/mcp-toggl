@@ -237,19 +237,12 @@ export class CacheManager {
   async getTag(id: number, workspaceId: number): Promise<Tag | null> {
     const cached = this.getCached(this.tags, id);
     if (cached) return cached;
-    
+
     if (!this.api) return null;
-    
-    try {
-      const tag = await this.api.getTag(workspaceId, id);
-      if (tag) {
-        this.setCached(this.tags, id, tag);
-      }
-      return tag;
-    } catch (error) {
-      console.error(`Failed to fetch tag ${id}:`, error);
-      return null;
-    }
+
+    // Fetch all tags for the workspace (populates cache) and find by ID
+    const tags = await this.getTags(workspaceId);
+    return tags.find(t => t.id === id) || null;
   }
   
   async getTags(workspaceId: number): Promise<Tag[]> {

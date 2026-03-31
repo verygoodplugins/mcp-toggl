@@ -154,10 +154,6 @@ export class TogglAPI {
     return this.request<Tag[]>('GET', `/workspaces/${workspaceId}/tags`);
   }
   
-  async getTag(workspaceId: number, tagId: number): Promise<Tag> {
-    return this.request<Tag>('GET', `/workspaces/${workspaceId}/tags/${tagId}`);
-  }
-
   async createTag(workspaceId: number, name: string): Promise<Tag> {
     return this.request<Tag>('POST', `/workspaces/${workspaceId}/tags`, { name });
   }
