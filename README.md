@@ -191,6 +191,44 @@ List projects in a workspace.
 #### `toggl_list_clients`
 List clients in a workspace.
 
+### Tag Management
+
+#### `toggl_list_tags`
+List all tags in a workspace.
+```json
+{
+  "workspace_id": 123456
+}
+```
+
+#### `toggl_create_tag`
+Create a new tag.
+```json
+{
+  "name": "billable",
+  "workspace_id": 123456
+}
+```
+
+#### `toggl_update_tag`
+Rename an existing tag.
+```json
+{
+  "tag_id": 789,
+  "name": "new-name",
+  "workspace_id": 123456
+}
+```
+
+#### `toggl_delete_tag`
+Delete a tag from a workspace.
+```json
+{
+  "tag_id": 789,
+  "workspace_id": 123456
+}
+```
+
 ### Cache Management
 
 #### `toggl_warm_cache`
