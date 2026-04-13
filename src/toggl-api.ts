@@ -302,7 +302,8 @@ export class TogglAPI {
   }> {
     const url = `https://api.track.toggl.com/reports/api/v3/workspace/${workspaceId}/search/time_entries`;
 
-    for (let attempt = 0; attempt < 3; attempt++) {
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const response = await fetch(url, {
         method: 'POST',
         headers: this.headers,
@@ -317,12 +318,26 @@ export class TogglAPI {
         continue;
       }
 
+      // 402 from Reports API is issued both for genuinely premium-gated
+      // features (e.g. the `billable` filter on a Free workspace) AND as a
+      // transient server-side glitch on otherwise valid requests. Retry with
+      // backoff; if it still 402s on the last attempt, surface a message that
+      // covers both possibilities.
+      if (response.status === 402 && attempt < maxAttempts - 1) {
+        const delay = (attempt + 1) * 1000;
+        console.error(`Reports API returned 402 (attempt ${attempt + 1}/${maxAttempts}); retrying after ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+
       if (!response.ok) {
         const text = await response.text();
         if (response.status === 402) {
           throw new Error(
-            `Reports API feature not enabled for workspace ${workspaceId} (402). ` +
-            `The 'billable' filter and some advanced features require a premium plan.`
+            `Reports API returned 402 for workspace ${workspaceId} after ${maxAttempts} attempts. ` +
+            `This can mean: (1) a filter you used requires a premium plan (e.g. 'billable'), or ` +
+            `(2) a transient Toggl server-side glitch — retry in a moment. ` +
+            `Server response: ${text}`
           );
         }
         throw new Error(`Reports API error (${response.status}): ${text}`);
