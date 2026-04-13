@@ -567,10 +567,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           rounding_minutes: args?.rounding_minutes as number | undefined,
           page_size: args?.page_size as number | undefined,
         };
-        // Strip undefined keys so Reports API doesn't see nulls where we mean "unset".
-        for (const k of Object.keys(filters) as (keyof TimeEntrySearchFilters)[]) {
-          if (filters[k] === undefined) delete filters[k];
-        }
 
         const entries = await api.searchTimeEntries(workspaceId as number, filters, {
           maxPages: (args?.max_pages as number | undefined) ?? 20,

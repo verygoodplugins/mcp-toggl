@@ -284,12 +284,28 @@ export class TogglAPI {
     const body = JSON.stringify(filters);
     // 402 from the Reports API is issued both for genuinely premium-gated
     // features (e.g. the `billable` filter on a Free workspace) AND as a
-    // transient server-side glitch that clears on retry. Retry once; if it
-    // still 402s, surface a message that covers both possibilities.
-    const maxAttempts = 2;
+    // transient server-side glitch that clears on retry. A true 402 is not
+    // worth many retries (real premium gate, wasted latency), but transport
+    // failures and 429 rate limits need a larger budget — so they are
+    // tracked on separate counters.
+    const maxAttempts = 3;       // network/429 budget
+    const max402Retries = 1;     // 402-specific retry budget
+    let attempts402 = 0;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const response = await fetch(url, { method: 'POST', headers: this.headers, body });
+      // Only the transport fetch and JSON parse are wrapped so that
+      // deliberate HTTP-error throws below propagate out of the loop.
+      let response: Awaited<ReturnType<typeof fetch>>;
+      try {
+        response = await fetch(url, { method: 'POST', headers: this.headers, body });
+      } catch (error) {
+        if (attempt >= maxAttempts - 1) throw error;
+        const delay = (attempt + 1) * 1000;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Reports API request failed (attempt ${attempt + 1}/${maxAttempts}): ${message}. Retrying after ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
 
       if (response.status === 429) {
         const retryAfterRaw = response.headers.get('Retry-After');
@@ -300,8 +316,9 @@ export class TogglAPI {
         continue;
       }
 
-      if (response.status === 402 && attempt < maxAttempts - 1) {
-        console.error(`Reports API returned 402 (attempt ${attempt + 1}/${maxAttempts}); retrying after 500ms...`);
+      if (response.status === 402 && attempts402 < max402Retries) {
+        attempts402++;
+        console.error(`Reports API returned 402 (402 retry ${attempts402}/${max402Retries}); retrying after 500ms...`);
         await new Promise(r => setTimeout(r, 500));
         continue;
       }
@@ -319,7 +336,17 @@ export class TogglAPI {
         throw new Error(`Reports API error (${response.status}): ${text}`);
       }
 
-      const rows = (await response.json()) as ReportsSearchRow[];
+      let rows: ReportsSearchRow[];
+      try {
+        rows = (await response.json()) as ReportsSearchRow[];
+      } catch (error) {
+        if (attempt >= maxAttempts - 1) throw error;
+        const delay = (attempt + 1) * 1000;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Reports API response parse failed (attempt ${attempt + 1}/${maxAttempts}): ${message}. Retrying after ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
       const nextIdHeader = response.headers.get('X-Next-ID');
       const nextRowHeader = response.headers.get('X-Next-Row-Number');
       return {
