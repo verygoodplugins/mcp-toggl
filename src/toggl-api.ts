@@ -363,7 +363,14 @@ export class TogglAPI {
         }
       }
 
-      if (!nextId || !nextRowNumber) break;
+      // Use explicit undefined/NaN checks so a legitimate 0 cursor value
+      // (possible if Toggl ever uses it) is not mistaken for end-of-results.
+      if (
+        nextId === undefined || Number.isNaN(nextId) ||
+        nextRowNumber === undefined || Number.isNaN(nextRowNumber)
+      ) {
+        break;
+      }
       payload.first_id = nextId;
       payload.first_row_number = nextRowNumber;
     }

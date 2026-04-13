@@ -161,7 +161,7 @@ Dashboard-parity search backed by **Toggl Reports API v3**. Per-workspace, auto-
 }
 ```
 Notes:
-- `billable` is a premium feature; Free-plan workspaces will surface a 402 error.
+- `billable` is a premium feature; Free plan workspaces will surface a 402 error.
 - Date range is required (either `start_date`+`end_date` or a `period`).
 - Pagination is automatic via `X-Next-ID` / `X-Next-Row-Number`; cap traversal with `max_pages`.
 

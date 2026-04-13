@@ -163,7 +163,7 @@ const tools: Tool[] = [
         end_date: { type: 'string', description: 'End date (YYYY-MM-DD format)' },
         workspace_id: { type: 'number', description: 'Filter by workspace ID' },
         project_id: { type: 'number', description: 'Filter by project ID' },
-        // Post-filter additions (applied after fetch, on hydrated entries).
+        // Post-filter additions (applied client-side after fetch, before hydration).
         description: { type: 'string', description: 'Case-insensitive substring match on entry description' },
         billable: { type: 'boolean', description: 'Filter by billable status' },
         user_ids: { type: 'array', items: { type: 'number' }, description: 'Filter by user IDs (client-side post-filter)' },
