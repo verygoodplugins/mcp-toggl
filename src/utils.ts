@@ -157,7 +157,6 @@ export function calculateTotalDuration(entries: HydratedTimeEntry[]): number {
 export function createReportEntry(entry: HydratedTimeEntry): ReportEntry {
   const duration = effectiveDurationSeconds(entry);
 
-
   return {
     id: entry.id,
     workspace: entry.workspace_name,

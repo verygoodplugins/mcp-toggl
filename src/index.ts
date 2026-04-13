@@ -532,14 +532,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         await ensureCache();
 
-        // Explicit start/end wins; otherwise derive from `period`. Reports
-        // API requires a date range, so we reject if neither is provided.
+        // Explicit start/end wins, but when `period` is supplied we use it
+        // to fill in whichever boundary is missing. Reports API requires a
+        // full date range, so we reject if we still cannot determine both.
         let startDate: string | undefined = args?.start_date as string | undefined;
         let endDate: string | undefined = args?.end_date as string | undefined;
-        if (!startDate && !endDate && args?.period) {
+        if (args?.period && (!startDate || !endDate)) {
           const range = getDateRange(args.period as any);
-          startDate = range.start.toISOString().split('T')[0];
-          endDate = range.end.toISOString().split('T')[0];
+          startDate = startDate ?? range.start.toISOString().split('T')[0];
+          endDate = endDate ?? range.end.toISOString().split('T')[0];
         }
         if (!startDate || !endDate) {
           throw new Error('Reports API requires both start_date and end_date (or a period).');
