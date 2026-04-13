@@ -470,44 +470,45 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           entries = await api.getTimeEntriesForToday();
         }
 
-        // Filter by workspace/project if specified
+        // Build a single predicate list so we walk the array once. `duration`
+        // is compared via `effectiveDurationSeconds` because running timers
+        // encode a negative start-time sentinel, not elapsed seconds.
+        const predicates: Array<(e: TimeEntry) => boolean> = [];
         if (args?.workspace_id) {
-          entries = entries.filter(e => e.workspace_id === args.workspace_id);
+          predicates.push(e => e.workspace_id === args.workspace_id);
         }
         if (args?.project_id) {
-          entries = entries.filter(e => e.project_id === args.project_id);
+          predicates.push(e => e.project_id === args.project_id);
         }
-
-        // Extended post-filters — applied before hydration where possible.
         if (typeof args?.billable === 'boolean') {
-          entries = entries.filter(e => e.billable === args.billable);
+          predicates.push(e => e.billable === args.billable);
         }
-        if (Array.isArray(args?.user_ids) && (args!.user_ids as number[]).length > 0) {
-          const ids = new Set(args!.user_ids as number[]);
-          entries = entries.filter(e => e.user_id !== undefined && ids.has(e.user_id));
+        if (Array.isArray(args?.user_ids) && (args.user_ids as number[]).length > 0) {
+          const ids = new Set(args.user_ids as number[]);
+          predicates.push(e => e.user_id !== undefined && ids.has(e.user_id));
         }
-        // For running timers `duration` encodes a negative start sentinel,
-        // so compare against the effective elapsed seconds instead of
-        // `Math.abs(duration)` (which would explode into a Unix timestamp).
         if (typeof args?.min_duration_seconds === 'number') {
-          const min = args!.min_duration_seconds as number;
-          entries = entries.filter(e => effectiveDurationSeconds(e) >= min);
+          const min = args.min_duration_seconds;
+          predicates.push(e => effectiveDurationSeconds(e) >= min);
         }
         if (typeof args?.max_duration_seconds === 'number') {
-          const max = args!.max_duration_seconds as number;
-          entries = entries.filter(e => effectiveDurationSeconds(e) <= max);
+          const max = args.max_duration_seconds;
+          predicates.push(e => effectiveDurationSeconds(e) <= max);
         }
-        if (typeof args?.description === 'string' && (args!.description as string).length > 0) {
-          const needle = (args!.description as string).toLowerCase();
-          entries = entries.filter(e => (e.description || '').toLowerCase().includes(needle));
+        if (typeof args?.description === 'string' && args.description.length > 0) {
+          const needle = (args.description as string).toLowerCase();
+          predicates.push(e => (e.description || '').toLowerCase().includes(needle));
         }
-        if (Array.isArray(args?.tags) && (args!.tags as string[]).length > 0) {
-          const wanted = args!.tags as string[];
-          const all = Boolean(args?.tags_all);
-          entries = entries.filter(e => {
+        if (Array.isArray(args?.tags) && (args.tags as string[]).length > 0) {
+          const wanted = args.tags as string[];
+          const all = Boolean(args.tags_all);
+          predicates.push(e => {
             const have = e.tags || [];
             return all ? wanted.every(t => have.includes(t)) : wanted.some(t => have.includes(t));
           });
+        }
+        if (predicates.length > 0) {
+          entries = entries.filter(e => predicates.every(p => p(e)));
         }
 
         // Hydrate with names
@@ -531,7 +532,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         await ensureCache();
 
-        // Resolve date range: explicit start/end > period > default (this week)
+        // Explicit start/end wins; otherwise derive from `period`. Reports
+        // API requires a date range, so we reject if neither is provided.
         let startDate: string | undefined = args?.start_date as string | undefined;
         let endDate: string | undefined = args?.end_date as string | undefined;
         if (!startDate && !endDate && args?.period) {

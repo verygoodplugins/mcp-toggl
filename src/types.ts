@@ -196,7 +196,7 @@ export interface WorkspaceSummary {
   entry_count: number;
 }
 
-// Dashboard-equivalent filter set for Reports API v3 detailed search.
+// User-facing dashboard-equivalent filter set for Reports API v3 detailed search.
 // Mirrors https://engineering.toggl.com/docs/track/reports/detailed_reports/
 // Use [null] in id-array filters to match entries with no value for that field.
 export interface TimeEntrySearchFilters {
@@ -219,7 +219,10 @@ export interface TimeEntrySearchFilters {
   rounding?: number;
   rounding_minutes?: number;
   page_size?: number;
-  // Pagination cursors returned by previous response
+}
+
+// Internal request shape including cursor fields owned by the pagination loop.
+export interface ReportsSearchRequest extends TimeEntrySearchFilters {
   first_id?: number;
   first_row_number?: number;
   first_timestamp?: number;

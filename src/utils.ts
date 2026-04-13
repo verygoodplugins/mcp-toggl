@@ -155,10 +155,9 @@ export function calculateTotalDuration(entries: HydratedTimeEntry[]): number {
 
 // Create a report entry from a hydrated time entry
 export function createReportEntry(entry: HydratedTimeEntry): ReportEntry {
-  const duration = entry.duration < 0
-    ? Math.floor((Date.now() - new Date(entry.start).getTime()) / 1000)
-    : entry.duration;
-    
+  const duration = effectiveDurationSeconds(entry);
+
+
   return {
     id: entry.id,
     workspace: entry.workspace_name,

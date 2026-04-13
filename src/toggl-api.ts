@@ -11,6 +11,7 @@ import type {
   CreateTimeEntryRequest,
   UpdateTimeEntryRequest,
   TimeEntrySearchFilters,
+  ReportsSearchRequest,
   ReportsSearchRow
 } from './types.js';
 
@@ -271,62 +272,37 @@ export class TogglAPI {
     return this.getTimeEntriesForDateRange(firstDay, lastDay);
   }
   
-  // Reports API endpoints (if needed)
-  async getDetailedReport(workspaceId: number, params: any): Promise<any> {
-    // This would use the Reports API v3 if needed
-    // https://api.track.toggl.com/reports/api/v3/workspace/{workspace_id}/search/time_entries
-    const reportsUrl = `https://api.track.toggl.com/reports/api/v3/workspace/${workspaceId}/search/time_entries`;
-
-    const response = await fetch(reportsUrl, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify(params)
-    });
-
-    if (!response.ok) {
-      throw new Error(`Reports API error: ${response.status}`);
-    }
-
-    return response.json();
-  }
-
-  // Reports API v3 detailed search — one page.
-  // Returns rows plus next-page cursor from response headers.
   async searchTimeEntriesPage(
     workspaceId: number,
-    filters: TimeEntrySearchFilters
+    filters: ReportsSearchRequest
   ): Promise<{
     rows: ReportsSearchRow[];
     nextId?: number;
     nextRowNumber?: number;
   }> {
     const url = `https://api.track.toggl.com/reports/api/v3/workspace/${workspaceId}/search/time_entries`;
+    const body = JSON.stringify(filters);
+    // 402 from the Reports API is issued both for genuinely premium-gated
+    // features (e.g. the `billable` filter on a Free workspace) AND as a
+    // transient server-side glitch that clears on retry. Retry once; if it
+    // still 402s, surface a message that covers both possibilities.
+    const maxAttempts = 2;
 
-    const maxAttempts = 3;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: this.headers,
-        body: JSON.stringify(filters)
-      });
+      const response = await fetch(url, { method: 'POST', headers: this.headers, body });
 
       if (response.status === 429) {
-        const retryAfter = response.headers.get('Retry-After');
-        const delay = retryAfter ? parseInt(retryAfter) * 1000 : (attempt + 1) * 2000;
+        const retryAfterRaw = response.headers.get('Retry-After');
+        const retryAfter = retryAfterRaw ? Number.parseInt(retryAfterRaw, 10) : NaN;
+        const delay = Number.isFinite(retryAfter) ? retryAfter * 1000 : (attempt + 1) * 2000;
         console.error(`Reports API rate limited. Retrying after ${delay}ms...`);
         await new Promise(r => setTimeout(r, delay));
         continue;
       }
 
-      // 402 from Reports API is issued both for genuinely premium-gated
-      // features (e.g. the `billable` filter on a Free workspace) AND as a
-      // transient server-side glitch on otherwise valid requests. Retry with
-      // backoff; if it still 402s on the last attempt, surface a message that
-      // covers both possibilities.
       if (response.status === 402 && attempt < maxAttempts - 1) {
-        const delay = (attempt + 1) * 1000;
-        console.error(`Reports API returned 402 (attempt ${attempt + 1}/${maxAttempts}); retrying after ${delay}ms...`);
-        await new Promise(r => setTimeout(r, delay));
+        console.error(`Reports API returned 402 (attempt ${attempt + 1}/${maxAttempts}); retrying after 500ms...`);
+        await new Promise(r => setTimeout(r, 500));
         continue;
       }
 
@@ -334,7 +310,7 @@ export class TogglAPI {
         const text = await response.text();
         if (response.status === 402) {
           throw new Error(
-            `Reports API returned 402 for workspace ${workspaceId} after ${maxAttempts} attempts. ` +
+            `Reports API returned 402 for workspace ${workspaceId}. ` +
             `This can mean: (1) a filter you used requires a premium plan (e.g. 'billable'), or ` +
             `(2) a transient Toggl server-side glitch — retry in a moment. ` +
             `Server response: ${text}`
@@ -348,36 +324,25 @@ export class TogglAPI {
       const nextRowHeader = response.headers.get('X-Next-Row-Number');
       return {
         rows: rows || [],
-        nextId: nextIdHeader ? parseInt(nextIdHeader) : undefined,
-        nextRowNumber: nextRowHeader ? parseInt(nextRowHeader) : undefined,
+        nextId: nextIdHeader ? Number.parseInt(nextIdHeader, 10) : undefined,
+        nextRowNumber: nextRowHeader ? Number.parseInt(nextRowHeader, 10) : undefined,
       };
     }
 
     throw new Error('Reports API: max retries reached');
   }
 
-  // Reports API v3 detailed search — auto-paginates and returns flat TimeEntry[].
-  // Expands each returned row (description+project+user bucket) into one entry
-  // per nested time_entries element, merging row-level fields onto each entry.
   async searchTimeEntries(
     workspaceId: number,
     filters: TimeEntrySearchFilters,
     options: { maxPages?: number } = {}
   ): Promise<TimeEntry[]> {
     const maxPages = options.maxPages ?? 20;
-    const pageSize = filters.page_size ?? 50;
-
+    const payload: ReportsSearchRequest = { ...filters, page_size: filters.page_size ?? 50 };
     const entries: TimeEntry[] = [];
-    let cursor: { first_id?: number; first_row_number?: number } = {
-      first_id: filters.first_id,
-      first_row_number: filters.first_row_number,
-    };
 
     for (let page = 0; page < maxPages; page++) {
-      const { rows, nextId, nextRowNumber } = await this.searchTimeEntriesPage(
-        workspaceId,
-        { ...filters, page_size: pageSize, ...cursor }
-      );
+      const { rows, nextId, nextRowNumber } = await this.searchTimeEntriesPage(workspaceId, payload);
 
       for (const row of rows) {
         for (const te of row.time_entries) {
@@ -399,7 +364,8 @@ export class TogglAPI {
       }
 
       if (!nextId || !nextRowNumber) break;
-      cursor = { first_id: nextId, first_row_number: nextRowNumber };
+      payload.first_id = nextId;
+      payload.first_row_number = nextRowNumber;
     }
 
     return entries;
