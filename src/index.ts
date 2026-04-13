@@ -18,7 +18,8 @@ import {
   groupEntriesByProject,
   groupEntriesByWorkspace,
   generateProjectSummary,
-  generateWorkspaceSummary
+  generateWorkspaceSummary,
+  effectiveDurationSeconds
 } from './utils.js';
 import type {
   CacheConfig,
@@ -187,7 +188,7 @@ const tools: Tool[] = [
         },
         start_date: { type: 'string', description: 'Start date YYYY-MM-DD (required unless period is given)' },
         end_date: { type: 'string', description: 'End date YYYY-MM-DD' },
-        user_ids: { type: 'array', items: { type: ['number', 'null'] }, description: 'User IDs. Use [null] to match entries with no user.' },
+        user_ids: { type: 'array', items: { type: 'number' }, description: 'User IDs. Unlike client/project/task/tag filters, Reports API does not accept [null] here — every entry has an owner.' },
         project_ids: { type: 'array', items: { type: ['number', 'null'] }, description: 'Project IDs. Use [null] to match entries with no project.' },
         client_ids: { type: 'array', items: { type: ['number', 'null'] }, description: 'Client IDs. Use [null] to match entries with no client.' },
         task_ids: { type: 'array', items: { type: ['number', 'null'] }, description: 'Task IDs. Use [null] to match entries with no task.' },
@@ -485,13 +486,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           const ids = new Set(args!.user_ids as number[]);
           entries = entries.filter(e => e.user_id !== undefined && ids.has(e.user_id));
         }
+        // For running timers `duration` encodes a negative start sentinel,
+        // so compare against the effective elapsed seconds instead of
+        // `Math.abs(duration)` (which would explode into a Unix timestamp).
         if (typeof args?.min_duration_seconds === 'number') {
           const min = args!.min_duration_seconds as number;
-          entries = entries.filter(e => Math.abs(e.duration) >= min);
+          entries = entries.filter(e => effectiveDurationSeconds(e) >= min);
         }
         if (typeof args?.max_duration_seconds === 'number') {
           const max = args!.max_duration_seconds as number;
-          entries = entries.filter(e => Math.abs(e.duration) <= max);
+          entries = entries.filter(e => effectiveDurationSeconds(e) <= max);
         }
         if (typeof args?.description === 'string' && (args!.description as string).length > 0) {
           const needle = (args!.description as string).toLowerCase();
@@ -542,7 +546,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const filters: TimeEntrySearchFilters = {
           start_date: startDate,
           end_date: endDate,
-          user_ids: args?.user_ids as (number | null)[] | undefined,
+          user_ids: args?.user_ids as number[] | undefined,
           project_ids: args?.project_ids as (number | null)[] | undefined,
           client_ids: args?.client_ids as (number | null)[] | undefined,
           task_ids: args?.task_ids as (number | null)[] | undefined,

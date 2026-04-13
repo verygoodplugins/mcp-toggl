@@ -202,7 +202,7 @@ export interface WorkspaceSummary {
 export interface TimeEntrySearchFilters {
   start_date?: string;  // YYYY-MM-DD (required by Reports API)
   end_date?: string;    // YYYY-MM-DD
-  user_ids?: (number | null)[];
+  user_ids?: number[];
   project_ids?: (number | null)[];
   client_ids?: (number | null)[];
   task_ids?: (number | null)[];

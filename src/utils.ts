@@ -138,15 +138,19 @@ export function groupEntriesByWorkspace(entries: HydratedTimeEntry[]): Map<strin
   return grouped;
 }
 
+// Resolve an entry's elapsed seconds, handling running timers whose
+// `duration` field encodes a negative start-time sentinel rather than
+// real seconds. Safe for both running and stopped entries.
+export function effectiveDurationSeconds(entry: { duration: number; start: string }): number {
+  if (entry.duration < 0) {
+    return Math.floor((Date.now() - new Date(entry.start).getTime()) / 1000);
+  }
+  return entry.duration;
+}
+
 // Calculate total duration from entries
 export function calculateTotalDuration(entries: HydratedTimeEntry[]): number {
-  return entries.reduce((total, entry) => {
-    // Handle running timers (negative duration)
-    const duration = entry.duration < 0 
-      ? Math.floor((Date.now() - new Date(entry.start).getTime()) / 1000)
-      : entry.duration;
-    return total + duration;
-  }, 0);
+  return entries.reduce((total, entry) => total + effectiveDurationSeconds(entry), 0);
 }
 
 // Create a report entry from a hydrated time entry
