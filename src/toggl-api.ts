@@ -9,7 +9,9 @@ import type {
   TimeEntry,
   TimeEntriesRequest,
   CreateTimeEntryRequest,
-  UpdateTimeEntryRequest
+  UpdateTimeEntryRequest,
+  TimeEntrySearchFilters,
+  ReportsSearchRow
 } from './types.js';
 
 export class TogglAPI {
@@ -274,17 +276,117 @@ export class TogglAPI {
     // This would use the Reports API v3 if needed
     // https://api.track.toggl.com/reports/api/v3/workspace/{workspace_id}/search/time_entries
     const reportsUrl = `https://api.track.toggl.com/reports/api/v3/workspace/${workspaceId}/search/time_entries`;
-    
+
     const response = await fetch(reportsUrl, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify(params)
     });
-    
+
     if (!response.ok) {
       throw new Error(`Reports API error: ${response.status}`);
     }
-    
+
     return response.json();
+  }
+
+  // Reports API v3 detailed search — one page.
+  // Returns rows plus next-page cursor from response headers.
+  async searchTimeEntriesPage(
+    workspaceId: number,
+    filters: TimeEntrySearchFilters
+  ): Promise<{
+    rows: ReportsSearchRow[];
+    nextId?: number;
+    nextRowNumber?: number;
+  }> {
+    const url = `https://api.track.toggl.com/reports/api/v3/workspace/${workspaceId}/search/time_entries`;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify(filters)
+      });
+
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('Retry-After');
+        const delay = retryAfter ? parseInt(retryAfter) * 1000 : (attempt + 1) * 2000;
+        console.error(`Reports API rate limited. Retrying after ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+
+      if (!response.ok) {
+        const text = await response.text();
+        if (response.status === 402) {
+          throw new Error(
+            `Reports API feature not enabled for workspace ${workspaceId} (402). ` +
+            `The 'billable' filter and some advanced features require a premium plan.`
+          );
+        }
+        throw new Error(`Reports API error (${response.status}): ${text}`);
+      }
+
+      const rows = (await response.json()) as ReportsSearchRow[];
+      const nextIdHeader = response.headers.get('X-Next-ID');
+      const nextRowHeader = response.headers.get('X-Next-Row-Number');
+      return {
+        rows: rows || [],
+        nextId: nextIdHeader ? parseInt(nextIdHeader) : undefined,
+        nextRowNumber: nextRowHeader ? parseInt(nextRowHeader) : undefined,
+      };
+    }
+
+    throw new Error('Reports API: max retries reached');
+  }
+
+  // Reports API v3 detailed search — auto-paginates and returns flat TimeEntry[].
+  // Expands each returned row (description+project+user bucket) into one entry
+  // per nested time_entries element, merging row-level fields onto each entry.
+  async searchTimeEntries(
+    workspaceId: number,
+    filters: TimeEntrySearchFilters,
+    options: { maxPages?: number } = {}
+  ): Promise<TimeEntry[]> {
+    const maxPages = options.maxPages ?? 20;
+    const pageSize = filters.page_size ?? 50;
+
+    const entries: TimeEntry[] = [];
+    let cursor: { first_id?: number; first_row_number?: number } = {
+      first_id: filters.first_id,
+      first_row_number: filters.first_row_number,
+    };
+
+    for (let page = 0; page < maxPages; page++) {
+      const { rows, nextId, nextRowNumber } = await this.searchTimeEntriesPage(
+        workspaceId,
+        { ...filters, page_size: pageSize, ...cursor }
+      );
+
+      for (const row of rows) {
+        for (const te of row.time_entries) {
+          entries.push({
+            id: te.id,
+            workspace_id: workspaceId,
+            project_id: row.project_id ?? undefined,
+            task_id: row.task_id ?? undefined,
+            user_id: row.user_id,
+            description: row.description,
+            billable: row.billable,
+            tag_ids: row.tag_ids,
+            start: te.start,
+            stop: te.stop,
+            duration: te.seconds,
+            at: te.at,
+          });
+        }
+      }
+
+      if (!nextId || !nextRowNumber) break;
+      cursor = { first_id: nextId, first_row_number: nextRowNumber };
+    }
+
+    return entries;
   }
 }

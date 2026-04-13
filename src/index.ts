@@ -22,7 +22,8 @@ import {
 } from './utils.js';
 import type {
   CacheConfig,
-  TimeEntry
+  TimeEntry,
+  TimeEntrySearchFilters
 } from './types.js';
 
 // Version for CLI output and server metadata
@@ -148,7 +149,7 @@ const tools: Tool[] = [
   // Time tracking tools
   {
     name: 'toggl_get_time_entries',
-    description: 'Get time entries with optional date range filters. Returns hydrated entries with project/workspace names.',
+    description: 'Get time entries via /me/time_entries with optional client-side filters. Fast for small date ranges. For dashboard-parity filtering (clients, tasks, tags, users, billable, duration bounds, etc.) prefer toggl_search_time_entries.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -157,22 +158,53 @@ const tools: Tool[] = [
           enum: ['today', 'yesterday', 'week', 'lastWeek', 'month', 'lastMonth'],
           description: 'Predefined period to fetch entries for'
         },
-        start_date: {
+        start_date: { type: 'string', description: 'Start date (YYYY-MM-DD format)' },
+        end_date: { type: 'string', description: 'End date (YYYY-MM-DD format)' },
+        workspace_id: { type: 'number', description: 'Filter by workspace ID' },
+        project_id: { type: 'number', description: 'Filter by project ID' },
+        // Post-filter additions (applied after fetch, on hydrated entries).
+        description: { type: 'string', description: 'Case-insensitive substring match on entry description' },
+        billable: { type: 'boolean', description: 'Filter by billable status' },
+        user_ids: { type: 'array', items: { type: 'number' }, description: 'Filter by user IDs (client-side post-filter)' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Filter by tag names (matches entries containing ANY of the given tags)' },
+        tags_all: { type: 'boolean', description: 'If true, require ALL given tags instead of ANY (default: false)' },
+        min_duration_seconds: { type: 'number', description: 'Minimum duration in seconds' },
+        max_duration_seconds: { type: 'number', description: 'Maximum duration in seconds' }
+      }
+    },
+  },
+  {
+    name: 'toggl_search_time_entries',
+    description: 'Search time entries via Toggl Reports API v3 with full dashboard-parity filters. Per-workspace. Auto-paginates. Returns flat hydrated entries.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspace_id: { type: 'number', description: 'Workspace ID (uses default if not provided)' },
+        period: {
           type: 'string',
-          description: 'Start date (YYYY-MM-DD format)'
+          enum: ['today', 'yesterday', 'week', 'lastWeek', 'month', 'lastMonth'],
+          description: 'Predefined period (sets start_date/end_date if those are not provided)'
         },
-        end_date: {
-          type: 'string',
-          description: 'End date (YYYY-MM-DD format)'
-        },
-        workspace_id: {
-          type: 'number',
-          description: 'Filter by workspace ID'
-        },
-        project_id: {
-          type: 'number',
-          description: 'Filter by project ID'
-        }
+        start_date: { type: 'string', description: 'Start date YYYY-MM-DD (required unless period is given)' },
+        end_date: { type: 'string', description: 'End date YYYY-MM-DD' },
+        user_ids: { type: 'array', items: { type: ['number', 'null'] }, description: 'User IDs. Use [null] to match entries with no user.' },
+        project_ids: { type: 'array', items: { type: ['number', 'null'] }, description: 'Project IDs. Use [null] to match entries with no project.' },
+        client_ids: { type: 'array', items: { type: ['number', 'null'] }, description: 'Client IDs. Use [null] to match entries with no client.' },
+        task_ids: { type: 'array', items: { type: ['number', 'null'] }, description: 'Task IDs. Use [null] to match entries with no task.' },
+        tag_ids: { type: 'array', items: { type: ['number', 'null'] }, description: 'Tag IDs. Use [null] to match entries with no tags.' },
+        group_ids: { type: 'array', items: { type: 'number' }, description: 'Team group IDs' },
+        time_entry_ids: { type: 'array', items: { type: 'number' }, description: 'Specific time entry IDs' },
+        description: { type: 'string', description: 'Text search on entry description' },
+        billable: { type: 'boolean', description: 'Billable filter (premium feature — may return 402 on Free plan)' },
+        min_duration_seconds: { type: 'number' },
+        max_duration_seconds: { type: 'number' },
+        order_by: { type: 'string', enum: ['date', 'user', 'duration', 'description', 'last_update'] },
+        order_dir: { type: 'string', enum: ['ASC', 'DESC'] },
+        grouped: { type: 'boolean' },
+        rounding: { type: 'number', description: 'Rounding mode' },
+        rounding_minutes: { type: 'number', enum: [0, 1, 5, 6, 10, 12, 15, 30, 60, 240] },
+        page_size: { type: 'number', description: 'Items per page (default: 50)' },
+        max_pages: { type: 'number', description: 'Max pages to auto-paginate (default: 20)' }
       }
     },
   },
@@ -423,9 +455,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // Time tracking tools
       case 'toggl_get_time_entries': {
         await ensureCache();
-        
+
         let entries: TimeEntry[];
-        
+
         if (args?.period) {
           const range = getDateRange(args.period as any);
           entries = await api.getTimeEntriesForDateRange(range.start, range.end);
@@ -436,7 +468,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         } else {
           entries = await api.getTimeEntriesForToday();
         }
-        
+
         // Filter by workspace/project if specified
         if (args?.workspace_id) {
           entries = entries.filter(e => e.workspace_id === args.workspace_id);
@@ -444,16 +476,108 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (args?.project_id) {
           entries = entries.filter(e => e.project_id === args.project_id);
         }
-        
+
+        // Extended post-filters — applied before hydration where possible.
+        if (typeof args?.billable === 'boolean') {
+          entries = entries.filter(e => e.billable === args.billable);
+        }
+        if (Array.isArray(args?.user_ids) && (args!.user_ids as number[]).length > 0) {
+          const ids = new Set(args!.user_ids as number[]);
+          entries = entries.filter(e => e.user_id !== undefined && ids.has(e.user_id));
+        }
+        if (typeof args?.min_duration_seconds === 'number') {
+          const min = args!.min_duration_seconds as number;
+          entries = entries.filter(e => Math.abs(e.duration) >= min);
+        }
+        if (typeof args?.max_duration_seconds === 'number') {
+          const max = args!.max_duration_seconds as number;
+          entries = entries.filter(e => Math.abs(e.duration) <= max);
+        }
+        if (typeof args?.description === 'string' && (args!.description as string).length > 0) {
+          const needle = (args!.description as string).toLowerCase();
+          entries = entries.filter(e => (e.description || '').toLowerCase().includes(needle));
+        }
+        if (Array.isArray(args?.tags) && (args!.tags as string[]).length > 0) {
+          const wanted = args!.tags as string[];
+          const all = Boolean(args?.tags_all);
+          entries = entries.filter(e => {
+            const have = e.tags || [];
+            return all ? wanted.every(t => have.includes(t)) : wanted.some(t => have.includes(t));
+          });
+        }
+
         // Hydrate with names
         const hydrated = await cache.hydrateTimeEntries(entries);
-        
+
         return {
           content: [{
             type: 'text',
-            text: JSON.stringify({ 
+            text: JSON.stringify({
               count: hydrated.length,
-              entries: hydrated 
+              entries: hydrated
+            }, null, 2)
+          }]
+        };
+      }
+
+      case 'toggl_search_time_entries': {
+        const workspaceId = (args?.workspace_id as number | undefined) || defaultWorkspaceId;
+        if (!workspaceId) {
+          throw new Error('Workspace ID required (set TOGGL_DEFAULT_WORKSPACE_ID or provide workspace_id)');
+        }
+        await ensureCache();
+
+        // Resolve date range: explicit start/end > period > default (this week)
+        let startDate: string | undefined = args?.start_date as string | undefined;
+        let endDate: string | undefined = args?.end_date as string | undefined;
+        if (!startDate && !endDate && args?.period) {
+          const range = getDateRange(args.period as any);
+          startDate = range.start.toISOString().split('T')[0];
+          endDate = range.end.toISOString().split('T')[0];
+        }
+        if (!startDate || !endDate) {
+          throw new Error('Reports API requires both start_date and end_date (or a period).');
+        }
+
+        const filters: TimeEntrySearchFilters = {
+          start_date: startDate,
+          end_date: endDate,
+          user_ids: args?.user_ids as (number | null)[] | undefined,
+          project_ids: args?.project_ids as (number | null)[] | undefined,
+          client_ids: args?.client_ids as (number | null)[] | undefined,
+          task_ids: args?.task_ids as (number | null)[] | undefined,
+          tag_ids: args?.tag_ids as (number | null)[] | undefined,
+          group_ids: args?.group_ids as number[] | undefined,
+          time_entry_ids: args?.time_entry_ids as number[] | undefined,
+          description: args?.description as string | undefined,
+          billable: args?.billable as boolean | undefined,
+          min_duration_seconds: args?.min_duration_seconds as number | undefined,
+          max_duration_seconds: args?.max_duration_seconds as number | undefined,
+          order_by: args?.order_by as TimeEntrySearchFilters['order_by'],
+          order_dir: args?.order_dir as TimeEntrySearchFilters['order_dir'],
+          grouped: args?.grouped as boolean | undefined,
+          rounding: args?.rounding as number | undefined,
+          rounding_minutes: args?.rounding_minutes as number | undefined,
+          page_size: args?.page_size as number | undefined,
+        };
+        // Strip undefined keys so Reports API doesn't see nulls where we mean "unset".
+        for (const k of Object.keys(filters) as (keyof TimeEntrySearchFilters)[]) {
+          if (filters[k] === undefined) delete filters[k];
+        }
+
+        const entries = await api.searchTimeEntries(workspaceId as number, filters, {
+          maxPages: (args?.max_pages as number | undefined) ?? 20,
+        });
+        const hydrated = await cache.hydrateTimeEntries(entries);
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              workspace_id: workspaceId,
+              count: hydrated.length,
+              filters,
+              entries: hydrated,
             }, null, 2)
           }]
         };
