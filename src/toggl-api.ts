@@ -345,7 +345,7 @@ export class TogglAPI {
       const { rows, nextId, nextRowNumber } = await this.searchTimeEntriesPage(workspaceId, payload);
 
       for (const row of rows) {
-        for (const te of row.time_entries) {
+        for (const te of row.time_entries ?? []) {
           entries.push({
             id: te.id,
             workspace_id: workspaceId,
