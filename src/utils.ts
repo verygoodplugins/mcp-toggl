@@ -39,6 +39,20 @@ export function formatDate(dateStr: string): string {
   });
 }
 
+// Format a Date as YYYY-MM-DD in the host's local timezone.
+export function toLocalYMD(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Parse a YYYY-MM-DD string into a Date at local midnight.
+export function parseLocalYMD(value: string): Date {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, (month ?? 1) - 1, day ?? 1, 0, 0, 0, 0);
+}
+
 // Get date range for various periods
 export function getDateRange(period: 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth'): DateRange {
   const today = new Date();
@@ -60,35 +74,33 @@ export function getDateRange(period: 'today' | 'yesterday' | 'week' | 'lastWeek'
     case 'week': {
       const dayOfWeek = today.getDay();
       const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-      const monday = new Date(today.setDate(diff));
-      const sunday = new Date(monday);
-      sunday.setDate(sunday.getDate() + 6);
-      sunday.setHours(23, 59, 59, 999);
-      return { start: monday, end: sunday };
+      const monday = new Date(today);
+      monday.setDate(diff);
+      const nextMonday = new Date(monday);
+      nextMonday.setDate(nextMonday.getDate() + 7);
+      return { start: monday, end: nextMonday };
     }
     
     case 'lastWeek': {
       const dayOfWeek = today.getDay();
       const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1) - 7;
-      const monday = new Date(today.setDate(diff));
-      const sunday = new Date(monday);
-      sunday.setDate(sunday.getDate() + 6);
-      sunday.setHours(23, 59, 59, 999);
-      return { start: monday, end: sunday };
+      const monday = new Date(today);
+      monday.setDate(diff);
+      const nextMonday = new Date(monday);
+      nextMonday.setDate(nextMonday.getDate() + 7);
+      return { start: monday, end: nextMonday };
     }
     
     case 'month': {
       const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-      const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      lastDay.setHours(23, 59, 59, 999);
-      return { start: firstDay, end: lastDay };
+      const firstDayNextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+      return { start: firstDay, end: firstDayNextMonth };
     }
     
     case 'lastMonth': {
       const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      const lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
-      lastDay.setHours(23, 59, 59, 999);
-      return { start: firstDay, end: lastDay };
+      const firstDayNextMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      return { start: firstDay, end: firstDayNextMonth };
     }
   }
 }
@@ -283,8 +295,8 @@ export function generateWeeklyReport(
   });
   
   return {
-    week_start: weekStart.toISOString().split('T')[0],
-    week_end: weekEnd.toISOString().split('T')[0],
+    week_start: toLocalYMD(weekStart),
+    week_end: toLocalYMD(weekEnd),
     total_hours: secondsToHours(totalSeconds),
     total_seconds: totalSeconds,
     daily_breakdown: dailyBreakdown,
