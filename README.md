@@ -118,14 +118,52 @@ Edit `.mcp.json` in your project:
 ### Time Tracking
 
 #### `toggl_get_time_entries`
-Get time entries with optional filters.
+Get time entries via `/me/time_entries` with optional client-side filters. Best for small date ranges; for dashboard-parity filtering prefer `toggl_search_time_entries`.
 ```json
 {
-  "period": "today",  // or: yesterday, week, lastWeek, month, lastMonth
+  "period": "today",
   "workspace_id": 123456,
-  "project_id": 789012
+  "project_id": 789012,
+  "description": "review",
+  "billable": true,
+  "tags": ["deep-work", "client-x"],
+  "tags_all": false,
+  "user_ids": [42],
+  "min_duration_seconds": 60,
+  "max_duration_seconds": 14400
 }
 ```
+
+#### `toggl_search_time_entries`
+Dashboard-parity search backed by **Toggl Reports API v3**. Per-workspace, auto-paginates, and expands grouped rows into flat hydrated entries. Supports every filter exposed by the Toggl dashboard: clients, projects, tasks, tags, users, team groups, description text search, billable, duration bounds, ordering, grouping, and workspace rounding. Use `[null]` in any id-array filter to match entries with no value for that field (e.g. entries with no project).
+```json
+{
+  "workspace_id": 123456,
+  "start_date": "2024-09-01",
+  "end_date": "2024-09-30",
+  "client_ids": [9001],
+  "project_ids": [789012, null],
+  "task_ids": [],
+  "tag_ids": [111, 222],
+  "user_ids": [42],
+  "group_ids": [],
+  "description": "migration",
+  "billable": true,
+  "min_duration_seconds": 300,
+  "max_duration_seconds": 28800,
+  "order_by": "duration",
+  "order_dir": "DESC",
+  "grouped": false,
+  "rounding": 1,
+  "rounding_minutes": 15,
+  "page_size": 50,
+  "max_pages": 20
+}
+```
+Notes:
+- `billable` is a premium feature; Free plan workspaces will surface a 402 error.
+- Date range is required (either `start_date`+`end_date` or a `period`).
+- Pagination is automatic via `X-Next-ID` / `X-Next-Row-Number`; cap traversal with `max_pages`.
 
 #### `toggl_get_current_entry`
 Get the currently running timer.

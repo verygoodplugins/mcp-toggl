@@ -196,6 +196,58 @@ export interface WorkspaceSummary {
   entry_count: number;
 }
 
+// User-facing dashboard-equivalent filter set for Reports API v3 detailed search.
+// Mirrors https://engineering.toggl.com/docs/track/reports/detailed_reports/
+// Use [null] in id-array filters to match entries with no value for that field.
+export interface TimeEntrySearchFilters {
+  start_date?: string;  // YYYY-MM-DD (required by Reports API)
+  end_date?: string;    // YYYY-MM-DD
+  user_ids?: number[];
+  project_ids?: (number | null)[];
+  client_ids?: (number | null)[];
+  task_ids?: (number | null)[];
+  tag_ids?: (number | null)[];
+  group_ids?: number[];
+  time_entry_ids?: number[];
+  description?: string;
+  billable?: boolean;     // premium feature
+  min_duration_seconds?: number;
+  max_duration_seconds?: number;
+  order_by?: 'date' | 'user' | 'duration' | 'description' | 'last_update';
+  order_dir?: 'ASC' | 'DESC';
+  grouped?: boolean;
+  rounding?: number;
+  rounding_minutes?: number;
+  page_size?: number;
+}
+
+// Internal request shape including cursor fields owned by the pagination loop.
+export interface ReportsSearchRequest extends TimeEntrySearchFilters {
+  first_id?: number;
+  first_row_number?: number;
+  first_timestamp?: number;
+}
+
+// Raw row from Reports API v3 detailed search (grouped=false still returns
+// one row per description+project+user bucket with nested time_entries).
+export interface ReportsSearchRow {
+  user_id: number;
+  username?: string;
+  project_id?: number | null;
+  task_id?: number | null;
+  description?: string;
+  billable?: boolean;
+  tag_ids?: number[];
+  row_number?: number;
+  time_entries: Array<{
+    id: number;
+    seconds: number;
+    start: string;
+    stop?: string;
+    at?: string;
+  }>;
+}
+
 // API request/response interfaces
 export interface TimeEntriesRequest {
   start_date?: string;  // ISO 8601 date

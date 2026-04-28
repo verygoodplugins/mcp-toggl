@@ -9,7 +9,10 @@ import type {
   TimeEntry,
   TimeEntriesRequest,
   CreateTimeEntryRequest,
-  UpdateTimeEntryRequest
+  UpdateTimeEntryRequest,
+  TimeEntrySearchFilters,
+  ReportsSearchRequest,
+  ReportsSearchRow
 } from './types.js';
 
 export class TogglAPI {
@@ -269,22 +272,136 @@ export class TogglAPI {
     return this.getTimeEntriesForDateRange(firstDay, lastDay);
   }
   
-  // Reports API endpoints (if needed)
-  async getDetailedReport(workspaceId: number, params: any): Promise<any> {
-    // This would use the Reports API v3 if needed
-    // https://api.track.toggl.com/reports/api/v3/workspace/{workspace_id}/search/time_entries
-    const reportsUrl = `https://api.track.toggl.com/reports/api/v3/workspace/${workspaceId}/search/time_entries`;
-    
-    const response = await fetch(reportsUrl, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify(params)
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Reports API error: ${response.status}`);
+  async searchTimeEntriesPage(
+    workspaceId: number,
+    filters: ReportsSearchRequest
+  ): Promise<{
+    rows: ReportsSearchRow[];
+    nextId?: number;
+    nextRowNumber?: number;
+  }> {
+    const url = `https://api.track.toggl.com/reports/api/v3/workspace/${workspaceId}/search/time_entries`;
+    const body = JSON.stringify(filters);
+    // 402 from the Reports API is issued both for genuinely premium-gated
+    // features (e.g. the `billable` filter on a Free workspace) AND as a
+    // transient server-side glitch that clears on retry. A true 402 is not
+    // worth many retries (real premium gate, wasted latency), but transport
+    // failures and 429 rate limits need a larger budget — so they are
+    // tracked on separate counters.
+    const maxAttempts = 3;       // network/429 budget
+    const max402Retries = 1;     // 402-specific retry budget
+    let attempts402 = 0;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      // Only the transport fetch and JSON parse are wrapped so that
+      // deliberate HTTP-error throws below propagate out of the loop.
+      let response: Awaited<ReturnType<typeof fetch>>;
+      try {
+        response = await fetch(url, { method: 'POST', headers: this.headers, body });
+      } catch (error) {
+        if (attempt >= maxAttempts - 1) throw error;
+        const delay = (attempt + 1) * 1000;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Reports API request failed (attempt ${attempt + 1}/${maxAttempts}): ${message}. Retrying after ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+
+      if (response.status === 429) {
+        const retryAfterRaw = response.headers.get('Retry-After');
+        const retryAfter = retryAfterRaw ? Number.parseInt(retryAfterRaw, 10) : NaN;
+        const delay = Number.isFinite(retryAfter) ? retryAfter * 1000 : (attempt + 1) * 2000;
+        console.error(`Reports API rate limited. Retrying after ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+
+      if (response.status === 402 && attempts402 < max402Retries) {
+        attempts402++;
+        console.error(`Reports API returned 402 (402 retry ${attempts402}/${max402Retries}); retrying after 500ms...`);
+        await new Promise(r => setTimeout(r, 500));
+        continue;
+      }
+
+      if (!response.ok) {
+        const text = await response.text();
+        if (response.status === 402) {
+          throw new Error(
+            `Reports API returned 402 for workspace ${workspaceId}. ` +
+            `This can mean: (1) a filter you used requires a premium plan (e.g. 'billable'), or ` +
+            `(2) a transient Toggl server-side glitch — retry in a moment. ` +
+            `Server response: ${text}`
+          );
+        }
+        throw new Error(`Reports API error (${response.status}): ${text}`);
+      }
+
+      let rows: ReportsSearchRow[];
+      try {
+        rows = (await response.json()) as ReportsSearchRow[];
+      } catch (error) {
+        if (attempt >= maxAttempts - 1) throw error;
+        const delay = (attempt + 1) * 1000;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Reports API response parse failed (attempt ${attempt + 1}/${maxAttempts}): ${message}. Retrying after ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      const nextIdHeader = response.headers.get('X-Next-ID');
+      const nextRowHeader = response.headers.get('X-Next-Row-Number');
+      return {
+        rows: rows || [],
+        nextId: nextIdHeader ? Number.parseInt(nextIdHeader, 10) : undefined,
+        nextRowNumber: nextRowHeader ? Number.parseInt(nextRowHeader, 10) : undefined,
+      };
     }
-    
-    return response.json();
+
+    throw new Error('Reports API: max retries reached');
+  }
+
+  async searchTimeEntries(
+    workspaceId: number,
+    filters: TimeEntrySearchFilters,
+    options: { maxPages?: number } = {}
+  ): Promise<TimeEntry[]> {
+    const maxPages = options.maxPages ?? 20;
+    const payload: ReportsSearchRequest = { ...filters, page_size: filters.page_size ?? 50 };
+    const entries: TimeEntry[] = [];
+
+    for (let page = 0; page < maxPages; page++) {
+      const { rows, nextId, nextRowNumber } = await this.searchTimeEntriesPage(workspaceId, payload);
+
+      for (const row of rows) {
+        for (const te of row.time_entries ?? []) {
+          entries.push({
+            id: te.id,
+            workspace_id: workspaceId,
+            project_id: row.project_id ?? undefined,
+            task_id: row.task_id ?? undefined,
+            user_id: row.user_id,
+            description: row.description,
+            billable: row.billable,
+            tag_ids: row.tag_ids,
+            start: te.start,
+            stop: te.stop,
+            duration: te.seconds,
+            at: te.at,
+          });
+        }
+      }
+
+      // Use explicit undefined/NaN checks so a legitimate 0 cursor value
+      // (possible if Toggl ever uses it) is not mistaken for end-of-results.
+      if (
+        nextId === undefined || Number.isNaN(nextId) ||
+        nextRowNumber === undefined || Number.isNaN(nextRowNumber)
+      ) {
+        break;
+      }
+      payload.first_id = nextId;
+      payload.first_row_number = nextRowNumber;
+    }
+
+    return entries;
   }
 }
