@@ -31,10 +31,12 @@ const VERSION = '1.0.0';
 // Basic CLI flags: --help / -h and --version / -v
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
+  // eslint-disable-next-line no-console
   console.log(`mcp-toggl version ${VERSION}`);
   process.exit(0);
 }
 if (argv.includes('--help') || argv.includes('-h')) {
+  // eslint-disable-next-line no-console
   console.log(`mcp-toggl - Toggl MCP Server\n\n` +
 `Usage:\n` +
 `  npx @verygoodplugins/mcp-toggl@latest [--help] [--version]\n\n` +

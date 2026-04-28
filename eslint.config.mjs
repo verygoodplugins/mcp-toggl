@@ -8,13 +8,14 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   {
     files: ['src/**/*.ts'],
+    ignores: ['src/test.ts'],
     rules: {
       // MCP stdio servers must not write to stdout outside the protocol.
       'no-console': ['error', { allow: ['error', 'warn'] }],
       // Allow unused vars prefixed with underscore
       '@typescript-eslint/no-unused-vars': [
         'error',
-        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
       // Allow explicit any in some cases (MCP tools often need flexibility)
       '@typescript-eslint/no-explicit-any': 'warn',

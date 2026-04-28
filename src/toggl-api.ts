@@ -132,7 +132,7 @@ export class TogglAPI {
         const clients = await this.getClients(workspace.id);
         const client = clients.find(c => c.id === clientId);
         if (client) return client;
-      } catch (error) {
+      } catch (_error) {
         // Workspace might not have clients
         continue;
       }
