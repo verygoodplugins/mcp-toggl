@@ -19,8 +19,16 @@ import {
   groupEntriesByWorkspace,
   generateProjectSummary,
   generateWorkspaceSummary,
+  toLocalYMD,
+  parseLocalYMD,
 } from './utils.js';
 import type { CacheConfig, TimeEntry } from './types.js';
+
+function parseInclusiveEndDate(value: string): Date {
+  const date = parseLocalYMD(value);
+  date.setDate(date.getDate() + 1);
+  return date;
+}
 
 // Version for CLI output and server metadata
 const VERSION = '1.0.0';
@@ -167,11 +175,11 @@ const tools: Tool[] = [
         },
         start_date: {
           type: 'string',
-          description: 'Start date (YYYY-MM-DD format)',
+          description: 'Start date (YYYY-MM-DD format, inclusive, local timezone)',
         },
         end_date: {
           type: 'string',
-          description: 'End date (YYYY-MM-DD format)',
+          description: 'End date (YYYY-MM-DD format, inclusive, local timezone)',
         },
         workspace_id: {
           type: 'number',
@@ -313,11 +321,11 @@ const tools: Tool[] = [
         },
         start_date: {
           type: 'string',
-          description: 'Start date (YYYY-MM-DD format)',
+          description: 'Start date (YYYY-MM-DD format, inclusive, local timezone)',
         },
         end_date: {
           type: 'string',
-          description: 'End date (YYYY-MM-DD format)',
+          description: 'End date (YYYY-MM-DD format, inclusive, local timezone)',
         },
         workspace_id: {
           type: 'number',
@@ -344,11 +352,11 @@ const tools: Tool[] = [
         },
         start_date: {
           type: 'string',
-          description: 'Start date (YYYY-MM-DD format)',
+          description: 'Start date (YYYY-MM-DD format, inclusive, local timezone)',
         },
         end_date: {
           type: 'string',
-          description: 'End date (YYYY-MM-DD format)',
+          description: 'End date (YYYY-MM-DD format, inclusive, local timezone)',
         },
       },
     },
@@ -509,8 +517,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           const range = getDateRange(args.period as any);
           entries = await api.getTimeEntriesForDateRange(range.start, range.end);
         } else if (args?.start_date || args?.end_date) {
-          const start = args?.start_date ? new Date(args.start_date as string) : new Date();
-          const end = args?.end_date ? new Date(args.end_date as string) : new Date();
+          const start = args?.start_date ? parseLocalYMD(args.start_date as string) : new Date();
+          start.setHours(0, 0, 0, 0);
+          const end = args?.end_date ? parseInclusiveEndDate(args.end_date as string) : new Date();
+          if (!args?.end_date) {
+            end.setHours(0, 0, 0, 0);
+            end.setDate(end.getDate() + 1);
+          }
           entries = await api.getTimeEntriesForDateRange(start, end);
         } else {
           entries = await api.getTimeEntriesForToday();
@@ -662,14 +675,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'toggl_daily_report': {
         await ensureCache();
 
-        const date = args?.date ? new Date(args.date as string) : new Date();
+        const date = args?.date ? parseLocalYMD(args.date as string) : new Date();
+        date.setHours(0, 0, 0, 0);
         const nextDay = new Date(date);
         nextDay.setDate(nextDay.getDate() + 1);
 
         const entries = await api.getTimeEntriesForDateRange(date, nextDay);
         const hydrated = await cache.hydrateTimeEntries(entries);
 
-        const report = generateDailyReport(date.toISOString().split('T')[0], hydrated);
+        const report = generateDailyReport(toLocalYMD(date), hydrated);
 
         if (args?.format === 'text') {
           return {
@@ -699,12 +713,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const entries = await api.getTimeEntriesForWeek(weekOffset);
         const hydrated = await cache.hydrateTimeEntries(entries);
 
-        // Calculate week boundaries
+        // Calculate week boundaries in local time.
         const today = new Date();
+        today.setHours(0, 0, 0, 0);
         const dayOfWeek = today.getDay();
         const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-        const monday = new Date(today.setDate(diff));
-        monday.setDate(monday.getDate() + weekOffset * 7);
+        const monday = new Date(today);
+        monday.setDate(diff + weekOffset * 7);
         const sunday = new Date(monday);
         sunday.setDate(sunday.getDate() + 6);
 
@@ -740,8 +755,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           const range = getDateRange(args.period as any);
           entries = await api.getTimeEntriesForDateRange(range.start, range.end);
         } else if (args?.start_date && args?.end_date) {
-          const start = new Date(args.start_date as string);
-          const end = new Date(args.end_date as string);
+          const start = parseLocalYMD(args.start_date as string);
+          const end = parseInclusiveEndDate(args.end_date as string);
           entries = await api.getTimeEntriesForDateRange(start, end);
         } else {
           // Default to current week
@@ -790,8 +805,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           const range = getDateRange(args.period as any);
           entries = await api.getTimeEntriesForDateRange(range.start, range.end);
         } else if (args?.start_date && args?.end_date) {
-          const start = new Date(args.start_date as string);
-          const end = new Date(args.end_date as string);
+          const start = parseLocalYMD(args.start_date as string);
+          const end = parseInclusiveEndDate(args.end_date as string);
           entries = await api.getTimeEntriesForDateRange(start, end);
         } else {
           // Default to current week
