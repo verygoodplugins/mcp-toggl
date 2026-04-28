@@ -110,7 +110,7 @@ export function groupEntriesByDate(entries: HydratedTimeEntry[]): Map<string, Hy
   const grouped = new Map<string, HydratedTimeEntry[]>();
   
   entries.forEach(entry => {
-    const date = entry.start.split('T')[0];
+    const date = toLocalYMD(new Date(entry.start));
     if (!grouped.has(date)) {
       grouped.set(date, []);
     }

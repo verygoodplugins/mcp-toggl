@@ -1,7 +1,15 @@
 process.env.TZ = 'Europe/London';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatDuration, getDateRange, parseLocalYMD, secondsToHours, toLocalYMD } from '../src/utils.js';
+import {
+  generateWeeklyReport,
+  formatDuration,
+  getDateRange,
+  parseLocalYMD,
+  secondsToHours,
+  toLocalYMD,
+} from '../src/utils.js';
+import type { HydratedTimeEntry } from '../src/types.js';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -47,5 +55,28 @@ describe('local date ranges', () => {
     expect(toLocalYMD(week.end)).toBe('2026-04-20');
     expect(toLocalYMD(month.start)).toBe('2026-04-01');
     expect(toLocalYMD(month.end)).toBe('2026-05-01');
+  });
+
+  it('groups weekly report entries by local date', () => {
+    const entry = {
+      id: 1,
+      workspace_id: 1,
+      workspace_name: 'Workspace',
+      start: '2026-04-18T23:30:00.000Z',
+      stop: '2026-04-19T00:00:00.000Z',
+      duration: 1800,
+      description: 'Late work',
+      billable: false,
+      tags: [],
+    } as HydratedTimeEntry;
+
+    const report = generateWeeklyReport(
+      parseLocalYMD('2026-04-13'),
+      parseLocalYMD('2026-04-19'),
+      [entry]
+    );
+
+    expect(report.daily_breakdown).toHaveLength(1);
+    expect(report.daily_breakdown[0]?.date).toBe('2026-04-19');
   });
 });
