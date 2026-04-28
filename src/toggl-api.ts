@@ -52,15 +52,18 @@ export class TogglAPI {
 
         if (!response.ok) {
           const text = await response.text();
-          if (response.status === 401 || response.status === 403) {
-            // Normalize common auth failure into a clearer message
-            throw new Error(
-              `Authentication failed (${response.status}). ` +
-                `Verify TOGGL_API_KEY is correct, has no leading/trailing spaces, and is the Toggl Track API token. ` +
-                `Server response: ${text}`
-            );
+          const isAuth = response.status === 401 || response.status === 403;
+          const message = isAuth
+            ? `Authentication failed (${response.status}). ` +
+              `Verify TOGGL_API_KEY is correct, has no leading/trailing spaces, and is the Toggl Track API token. ` +
+              `Server response: ${text}`
+            : `Toggl API error (${response.status}): ${text}`;
+          const err = new Error(message);
+          // 4xx client errors won't succeed on retry (incl. 401/403); 5xx and network errors do retry.
+          if (response.status >= 400 && response.status < 500) {
+            Object.assign(err, { noRetry: true });
           }
-          throw new Error(`Toggl API error (${response.status}): ${text}`);
+          throw err;
         }
 
         // Handle 204 No Content
@@ -69,9 +72,9 @@ export class TogglAPI {
         }
 
         return (await response.json()) as T;
-      } catch (error) {
-        if (i === retries - 1) throw error;
-        // Exponential backoff
+      } catch (error: any) {
+        if (error?.noRetry || i === retries - 1) throw error;
+        // Exponential backoff for transient/network errors
         await new Promise((resolve) => setTimeout(resolve, (i + 1) * 1000));
       }
     }
