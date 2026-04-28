@@ -1,17 +1,20 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.verygoodplugins/mcp-toggl",
-  "description": "MCP server for Toggl Track time tracking integration with intelligent caching and reporting tools.",
+  "title": "MCP Toggl",
+  "description": "Toggl Track time tracking with intelligent caching and reporting",
   "version": "1.0.0",
+  "websiteUrl": "https://verygoodplugins.com/?utm_source=mcp-registry",
   "repository": {
-    "type": "git",
-    "url": "https://github.com/verygoodplugins/mcp-toggl"
+    "url": "https://github.com/verygoodplugins/mcp-toggl",
+    "source": "github"
   },
   "packages": [
     {
-      "registry_type": "npm",
+      "registryType": "npm",
       "identifier": "@verygoodplugins/mcp-toggl",
-      "version": "1.0.0"
+      "version": "1.0.0",
+      "transport": { "type": "stdio" }
     }
   ],
   "tools": [
@@ -39,9 +42,5 @@
       "name": "toggl_report",
       "description": "Generate time reports"
     }
-  ],
-  "author": {
-    "name": "Very Good Plugins",
-    "url": "https://verygoodplugins.com/?utm_source=mcp-registry"
-  }
+  ]
 }
