@@ -5,9 +5,9 @@ export interface TogglConfig {
 }
 
 export interface CacheConfig {
-  ttl: number;        // Time-to-live in milliseconds
-  maxSize: number;    // Maximum number of cached entities
-  batchSize: number;  // Number of entries to fetch per request
+  ttl: number; // Time-to-live in milliseconds
+  maxSize: number; // Maximum number of cached entities
+  batchSize: number; // Number of entries to fetch per request
 }
 
 // Core Toggl entities
@@ -113,7 +113,7 @@ export interface TimeEntry {
   billable?: boolean;
   start: string;
   stop?: string;
-  duration: number;  // In seconds, negative if currently running
+  duration: number; // In seconds, negative if currently running
   description?: string;
   tags?: string[];
   tag_ids?: number[];
@@ -198,11 +198,11 @@ export interface WorkspaceSummary {
 
 // API request/response interfaces
 export interface TimeEntriesRequest {
-  start_date?: string;  // ISO 8601 date
-  end_date?: string;    // ISO 8601 date
-  since?: number;       // Unix timestamp
-  before?: number;      // Unix timestamp
-  meta?: boolean;       // Include meta information
+  start_date?: string; // ISO 8601 date
+  end_date?: string; // ISO 8601 date
+  since?: number; // Unix timestamp
+  before?: number; // Unix timestamp
+  meta?: boolean; // Include meta information
 }
 
 export interface CreateTimeEntryRequest {
@@ -213,9 +213,9 @@ export interface CreateTimeEntryRequest {
   tags?: string[];
   tag_ids?: number[];
   billable?: boolean;
-  start: string;  // ISO 8601 datetime
-  stop?: string;  // ISO 8601 datetime
-  duration?: number;  // For entries with only duration
+  start: string; // ISO 8601 datetime
+  stop?: string; // ISO 8601 datetime
+  duration?: number; // For entries with only duration
   created_with: string;
 }
 

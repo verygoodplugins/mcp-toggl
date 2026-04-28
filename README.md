@@ -305,7 +305,7 @@ npm test
 
 ## License
 
-GPL-3.0
+MIT
 
 ## Support
 
