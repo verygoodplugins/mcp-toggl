@@ -231,6 +231,23 @@ export interface UpdateTimeEntryRequest {
   duration?: number;
 }
 
+export interface TimelineEvent {
+  id: number;
+  start_time: number; // Unix timestamp in seconds
+  end_time: number | null; // Unix timestamp in seconds, null if active
+  desktop_id: string;
+  idle: boolean;
+  filename: string | null; // Application name
+  title: string | null; // Window title, may contain sensitive data
+}
+
+export interface EnrichedTimelineEvent extends TimelineEvent {
+  filename: string;
+  start: string;
+  end: string;
+  duration_seconds: number;
+}
+
 // Cache interfaces
 export interface CacheEntry<T> {
   data: T;
@@ -270,6 +287,8 @@ export interface DateRange {
   start: Date;
   end: Date;
 }
+
+export type DatePeriod = 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth';
 
 export interface GroupedEntries {
   [key: string]: HydratedTimeEntry[];

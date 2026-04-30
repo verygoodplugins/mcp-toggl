@@ -4,6 +4,8 @@ dist/
 .env.local
 *.log
 .DS_Store
+.cursor/
+AGENTS.md
 .vscode/
 .idea/
 *.swp
