@@ -328,7 +328,18 @@ export class TogglAPI {
 
         if (response.status === 429) {
           const retryAfter = response.headers.get('Retry-After');
-          const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : (attempt + 1) * 2000;
+          let delay: number;
+          if (retryAfter) {
+            const deltaSeconds = parseInt(retryAfter, 10);
+            if (Number.isFinite(deltaSeconds)) {
+              delay = deltaSeconds * 1000;
+            } else {
+              const dateMs = Date.parse(retryAfter);
+              delay = Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : (attempt + 1) * 2000;
+            }
+          } else {
+            delay = (attempt + 1) * 2000;
+          }
           console.error(`Timeline rate limited. Retrying after ${delay}ms...`);
           await new Promise((resolve) => setTimeout(resolve, delay));
           continue;

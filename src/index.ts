@@ -22,6 +22,7 @@ import {
   generateWorkspaceSummary,
   toLocalYMD,
   parseLocalYMD,
+  localDateRangeFromArgs,
 } from './utils.js';
 import type { CacheConfig, TimelineEvent, TimeEntry } from './types.js';
 
@@ -1071,7 +1072,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'toggl_get_timeline': {
-        buildTimelineResponse([], args);
+        localDateRangeFromArgs(args);
 
         let allEvents: TimelineEvent[];
         try {

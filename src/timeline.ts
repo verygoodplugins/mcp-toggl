@@ -67,8 +67,8 @@ export function buildTimelineResponse(
         ...event,
         filename,
         title: redactTitles ? null : event.title,
-        start: new Date(event.start_time * 1000).toISOString(),
-        end: new Date(eventEnd * 1000).toISOString(),
+        start: new Date(clippedStart * 1000).toISOString(),
+        end: new Date(clippedEnd * 1000).toISOString(),
         duration_seconds: duration,
       });
     }
