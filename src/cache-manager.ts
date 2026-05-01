@@ -19,6 +19,10 @@ export class CacheManager {
   private tasks: Map<number, CacheEntry<Task>> = new Map();
   private users: Map<number, CacheEntry<User>> = new Map();
   private tags: Map<number, CacheEntry<Tag>> = new Map();
+  private workspaceList: CacheEntry<Workspace[]> | null = null;
+  private projectsByWorkspace: Map<number, CacheEntry<Project[]>> = new Map();
+  private clientsByWorkspace: Map<number, CacheEntry<Client[]>> = new Map();
+  private tagsByWorkspace: Map<number, CacheEntry<Tag[]>> = new Map();
 
   // Track cache performance
   private stats = {
@@ -39,7 +43,7 @@ export class CacheManager {
   }
 
   // Check if cache entry is still valid
-  private isValid<T>(entry?: CacheEntry<T>): boolean {
+  private isValid<T>(entry?: CacheEntry<T> | null): boolean {
     if (!entry) return false;
     const age = Date.now() - entry.timestamp.getTime();
     return age < entry.ttl;
@@ -48,6 +52,15 @@ export class CacheManager {
   // Generic cache getter
   private getCached<T>(cache: Map<number, CacheEntry<T>>, id: number): T | null {
     const entry = cache.get(id);
+    if (this.isValid(entry)) {
+      this.stats.hits++;
+      return entry!.data;
+    }
+    this.stats.misses++;
+    return null;
+  }
+
+  private getCachedCollection<T>(entry: CacheEntry<T[]> | null | undefined): T[] | null {
     if (this.isValid(entry)) {
       this.stats.hits++;
       return entry!.data;
@@ -74,6 +87,14 @@ export class CacheManager {
     });
   }
 
+  private setCachedCollection<T>(data: T[]): CacheEntry<T[]> {
+    return {
+      data,
+      timestamp: new Date(),
+      ttl: this.config.ttl,
+    };
+  }
+
   // Workspace methods
   async getWorkspace(id: number | undefined): Promise<Workspace | null> {
     if (!id) return null;
@@ -95,6 +116,9 @@ export class CacheManager {
   }
 
   async getWorkspaces(): Promise<Workspace[]> {
+    const cached = this.getCachedCollection(this.workspaceList);
+    if (cached) return cached;
+
     if (!this.api) return [];
 
     try {
@@ -103,6 +127,7 @@ export class CacheManager {
       workspaces.forEach((ws: Workspace) => {
         this.setCached(this.workspaces, ws.id, ws);
       });
+      this.workspaceList = this.setCachedCollection(workspaces);
       return workspaces;
     } catch (error) {
       console.error('Failed to fetch workspaces:', error);
@@ -111,11 +136,16 @@ export class CacheManager {
   }
 
   // Project methods
-  async getProject(id: number): Promise<Project | null> {
+  async getProject(id: number, workspaceId?: number): Promise<Project | null> {
     const cached = this.getCached(this.projects, id);
     if (cached) return cached;
 
     if (!this.api) return null;
+
+    if (workspaceId) {
+      const projects = await this.getProjects(workspaceId);
+      return projects.find((project) => project.id === id) || null;
+    }
 
     try {
       const project = await this.api.getProject(id);
@@ -130,6 +160,9 @@ export class CacheManager {
   }
 
   async getProjects(workspaceId: number): Promise<Project[]> {
+    const cached = this.getCachedCollection(this.projectsByWorkspace.get(workspaceId));
+    if (cached) return cached;
+
     if (!this.api) return [];
 
     try {
@@ -138,6 +171,7 @@ export class CacheManager {
       projects.forEach((proj: Project) => {
         this.setCached(this.projects, proj.id, proj);
       });
+      this.projectsByWorkspace.set(workspaceId, this.setCachedCollection(projects));
       return projects;
     } catch (error) {
       console.error(`Failed to fetch projects for workspace ${workspaceId}:`, error);
@@ -146,11 +180,16 @@ export class CacheManager {
   }
 
   // Client methods
-  async getClient(id: number): Promise<Client | null> {
+  async getClient(id: number, workspaceId?: number): Promise<Client | null> {
     const cached = this.getCached(this.clients, id);
     if (cached) return cached;
 
     if (!this.api) return null;
+
+    if (workspaceId) {
+      const clients = await this.getClients(workspaceId);
+      return clients.find((client) => client.id === id) || null;
+    }
 
     try {
       const client = await this.api.getClient(id);
@@ -165,6 +204,9 @@ export class CacheManager {
   }
 
   async getClients(workspaceId: number): Promise<Client[]> {
+    const cached = this.getCachedCollection(this.clientsByWorkspace.get(workspaceId));
+    if (cached) return cached;
+
     if (!this.api) return [];
 
     try {
@@ -173,6 +215,7 @@ export class CacheManager {
       clients.forEach((client: Client) => {
         this.setCached(this.clients, client.id, client);
       });
+      this.clientsByWorkspace.set(workspaceId, this.setCachedCollection(clients));
       return clients;
     } catch (error) {
       console.error(`Failed to fetch clients for workspace ${workspaceId}:`, error);
@@ -242,11 +285,8 @@ export class CacheManager {
     if (!this.api) return null;
 
     try {
-      const tag = await this.api.getTag(workspaceId, id);
-      if (tag) {
-        this.setCached(this.tags, id, tag);
-      }
-      return tag;
+      const tags = await this.getTags(workspaceId);
+      return tags.find((tag) => tag.id === id) || null;
     } catch (error) {
       console.error(`Failed to fetch tag ${id}:`, error);
       return null;
@@ -254,6 +294,9 @@ export class CacheManager {
   }
 
   async getTags(workspaceId: number): Promise<Tag[]> {
+    const cached = this.getCachedCollection(this.tagsByWorkspace.get(workspaceId));
+    if (cached) return cached;
+
     if (!this.api) return [];
 
     try {
@@ -262,6 +305,7 @@ export class CacheManager {
       tags.forEach((tag: Tag) => {
         this.setCached(this.tags, tag.id, tag);
       });
+      this.tagsByWorkspace.set(workspaceId, this.setCachedCollection(tags));
       return tags;
     } catch (error) {
       console.error(`Failed to fetch tags for workspace ${workspaceId}:`, error);
@@ -299,37 +343,37 @@ export class CacheManager {
     }
   }
 
+  private normalizeTimeEntry(entry: TimeEntry): HydratedTimeEntry {
+    const running = entry.duration < 0 && !entry.stop;
+    const elapsedSeconds = running
+      ? Math.max(0, Math.floor((Date.now() - new Date(entry.start).getTime()) / 1000))
+      : undefined;
+    const durationSeconds = running ? elapsedSeconds! : Math.max(0, entry.duration);
+    const tags = normalizeStringArray(entry.tags);
+    const tagIds = normalizeNumberArray(entry.tag_ids);
+    const normalized: HydratedTimeEntry = {
+      ...entry,
+      workspace_name: `Workspace ${entry.workspace_id}`,
+      tags,
+      tag_ids: tagIds,
+      tag_names: [...tags],
+      running,
+      duration_seconds: durationSeconds,
+    };
+
+    if (elapsedSeconds !== undefined) {
+      normalized.elapsed_seconds = elapsedSeconds;
+    }
+
+    return normalized;
+  }
+
   // Hydrate time entries with cached names
   async hydrateTimeEntries(entries: TimeEntry[]): Promise<HydratedTimeEntry[]> {
     const hydrated: HydratedTimeEntry[] = [];
 
-    // Collect unique IDs to batch fetch if needed
-    const workspaceIds = new Set<number>();
-    const projectIds = new Set<number>();
-    const taskIds = new Set<{ wid: number; pid: number; tid: number }>();
-
-    entries.forEach((entry) => {
-      workspaceIds.add(entry.workspace_id);
-      if (entry.project_id) projectIds.add(entry.project_id);
-      if (entry.task_id && entry.project_id) {
-        taskIds.add({
-          wid: entry.workspace_id,
-          pid: entry.project_id,
-          tid: entry.task_id,
-        });
-      }
-    });
-
-    // Pre-fetch missing entities
-    const projectsToFetch = Array.from(projectIds).filter((id) => !this.projects.has(id));
-    if (projectsToFetch.length > 0 && this.api) {
-      console.error(`Fetching ${projectsToFetch.length} missing projects...`);
-      await Promise.all(projectsToFetch.map((id) => this.getProject(id)));
-    }
-
-    // Now hydrate each entry
     for (const entry of entries) {
-      const hydEntry: HydratedTimeEntry = { ...entry } as HydratedTimeEntry;
+      const hydEntry = this.normalizeTimeEntry(entry);
 
       // Add workspace name
       const workspace = await this.getWorkspace(entry.workspace_id);
@@ -337,12 +381,12 @@ export class CacheManager {
 
       // Add project name and client info
       if (entry.project_id) {
-        const project = await this.getProject(entry.project_id);
+        const project = await this.getProject(entry.project_id, entry.workspace_id);
         hydEntry.project_name = project?.name || `Project ${entry.project_id}`;
 
         if (project?.client_id) {
           hydEntry.client_id = project.client_id;
-          const client = await this.getClient(project.client_id);
+          const client = await this.getClient(project.client_id, entry.workspace_id);
           hydEntry.client_name = client?.name || `Client ${project.client_id}`;
         }
       }
@@ -360,14 +404,16 @@ export class CacheManager {
       }
 
       // Add tag names
-      if (entry.tag_ids && entry.tag_ids.length > 0) {
-        hydEntry.tag_names = [];
-        for (const tagId of entry.tag_ids) {
+      if (hydEntry.tag_ids.length > 0) {
+        const tagNames = new Set(hydEntry.tag_names);
+        for (const tagId of hydEntry.tag_ids) {
           const tag = await this.getTag(tagId, entry.workspace_id);
           if (tag) {
-            hydEntry.tag_names.push(tag.name);
+            tagNames.add(tag.name);
           }
         }
+        hydEntry.tag_names = Array.from(tagNames);
+        hydEntry.tags = hydEntry.tag_names;
       }
 
       hydrated.push(hydEntry);
@@ -384,6 +430,10 @@ export class CacheManager {
     this.tasks.clear();
     this.users.clear();
     this.tags.clear();
+    this.workspaceList = null;
+    this.projectsByWorkspace.clear();
+    this.clientsByWorkspace.clear();
+    this.tagsByWorkspace.clear();
     this.stats = {
       hits: 0,
       misses: 0,
@@ -424,5 +474,34 @@ export class CacheManager {
     prune(this.tasks);
     prune(this.users);
     prune(this.tags);
+
+    if (!this.isValid(this.workspaceList)) {
+      this.workspaceList = null;
+    }
+    const pruneCollections = <T>(cache: Map<number, CacheEntry<T[]>>) => {
+      const expired: number[] = [];
+      cache.forEach((entry, key) => {
+        if (!this.isValid(entry)) {
+          expired.push(key);
+        }
+      });
+      expired.forEach((key) => cache.delete(key));
+    };
+
+    pruneCollections(this.projectsByWorkspace);
+    pruneCollections(this.clientsByWorkspace);
+    pruneCollections(this.tagsByWorkspace);
   }
+}
+
+function normalizeStringArray(value: string[] | null | undefined): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function normalizeNumberArray(value: number[] | null | undefined): number[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is number => typeof item === 'number')
+    : [];
 }

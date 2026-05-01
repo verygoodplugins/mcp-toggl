@@ -5,7 +5,7 @@ A Model Context Protocol (MCP) server for Toggl Track integration, providing tim
 ## Features
 
 - **Time Tracking**: Start/stop timers, get current and past time entries
-- **Smart Reporting**: Daily/weekly reports with project and workspace breakdowns  
+- **Smart Reporting**: Daily/weekly reports with project and workspace breakdowns
 - **Performance Optimized**: Intelligent caching system minimizes API calls
 - **Data Hydration**: Automatically enriches time entries with project/workspace/client names
 - **Flexible Filtering**: Query by date ranges, workspaces, or projects
@@ -16,7 +16,9 @@ A Model Context Protocol (MCP) server for Toggl Track integration, providing tim
 Use via npx without cloning or building locally.
 
 ### Claude Desktop
+
 Add this to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
 ```json
 {
   "mcpServers": {
@@ -34,7 +36,9 @@ Add this to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```
 
 ### Cursor
+
 Add this to your Cursor MCP settings (e.g., `~/.cursor/mcp.json`):
+
 ```json
 {
   "mcp": {
@@ -66,6 +70,7 @@ npm run build
 1. Get your Toggl API key from: https://track.toggl.com/profile
 
 2. Create a `.env` file:
+
 ```env
 TOGGL_API_KEY=your_api_key_here
 
@@ -74,15 +79,22 @@ TOGGL_API_KEY=your_api_key_here
 # TOGGL_TOKEN=your_api_key_here
 
 # Optional configuration
-TOGGL_DEFAULT_WORKSPACE_ID=123456  # Your default workspace
+TOGGL_DEFAULT_WORKSPACE_ID=123456  # Optional default workspace for multi-workspace accounts
 TOGGL_CACHE_TTL=3600000            # Cache TTL in ms (default: 1 hour)
 TOGGL_CACHE_SIZE=1000              # Max cached entities (default: 1000)
 ```
 
+Workspace-scoped tools use `workspace_id` first, then `TOGGL_DEFAULT_WORKSPACE_ID`.
+If neither is provided and your account has exactly one workspace, that workspace is selected
+automatically. If your account has multiple workspaces, the tool returns an actionable error with
+the available workspace IDs so you can pass `workspace_id` or set the default env var.
+
 3. Add to your MCP configuration:
 
 ### Claude Desktop
+
 Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
 ```json
 {
   "mcpServers": {
@@ -98,7 +110,9 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```
 
 ### Cursor
+
 Edit `.mcp.json` in your project:
+
 ```json
 {
   "mcpServers": {
@@ -118,58 +132,73 @@ Edit `.mcp.json` in your project:
 ### Authentication
 
 #### `toggl_check_auth`
+
 Verify Toggl API connectivity and confirm your token can access available workspaces without exposing the token.
 
 ### Time Tracking
 
 #### `toggl_get_time_entries`
+
 Get time entries with optional filters.
+
 ```json
 {
-  "period": "today",  // or: yesterday, week, lastWeek, month, lastMonth
+  "period": "today", // or: yesterday, week, lastWeek, month, lastMonth
   "workspace_id": 123456,
   "project_id": 789012
 }
 ```
 
 #### `toggl_get_current_entry`
+
 Get the currently running timer.
 
 #### `toggl_start_timer`
-Start a new time entry.
+
+Start a new time entry. `workspace_id` is optional only when `TOGGL_DEFAULT_WORKSPACE_ID` is set
+or your Toggl account has a single workspace.
+
 ```json
 {
   "description": "Working on MCP server",
+  "workspace_id": 123456,
   "project_id": 123456,
   "tags": ["development", "mcp"]
 }
 ```
 
 #### `toggl_stop_timer`
+
 Stop the currently running timer.
 
 ### Reporting
 
 #### `toggl_daily_report`
+
 Generate a daily report with project/workspace breakdowns.
+
 ```json
 {
   "date": "2024-09-01",
-  "format": "json"  // or "text" for formatted output
+  "format": "json" // or "text" for formatted output
 }
 ```
 
 #### `toggl_weekly_report`
+
 Generate a weekly report with daily breakdowns.
+
 ```json
 {
-  "week_offset": 0,  // 0 = this week, -1 = last week
+  "week_offset": 0, // 0 = this week, -1 = last week
   "format": "json"
 }
 ```
 
 #### `toggl_project_summary`
+
 Get total hours per project for a date range.
+
 ```json
 {
   "period": "month",
@@ -178,12 +207,15 @@ Get total hours per project for a date range.
 ```
 
 #### `toggl_workspace_summary`
+
 Get total hours per workspace.
 
 #### `toggl_get_timeline`
+
 Get Toggl Desktop activity timeline data with application usage summaries and optional raw events. Requires Toggl Track Desktop timeline sync to be enabled.
 
 Privacy note: raw timeline events can include window titles that may contain document names, email subjects, chat text, URLs, OAuth pages, or database names. For privacy-conscious usage, request summary-only output:
+
 ```json
 {
   "period": "today",
@@ -192,6 +224,7 @@ Privacy note: raw timeline events can include window titles that may contain doc
 ```
 
 To return events while hiding window titles:
+
 ```json
 {
   "period": "today",
@@ -203,10 +236,13 @@ To return events while hiding window titles:
 ### Management
 
 #### `toggl_list_workspaces`
+
 List all available workspaces.
 
 #### `toggl_list_projects`
-List projects in a workspace.
+
+List projects in a workspace. Uses cached workspace project lists after the first fetch.
+
 ```json
 {
   "workspace_id": 123456
@@ -214,51 +250,61 @@ List projects in a workspace.
 ```
 
 #### `toggl_list_clients`
-List clients in a workspace.
+
+List clients in a workspace. Uses cached workspace client lists after the first fetch.
 
 ### Cache Management
 
 #### `toggl_warm_cache`
-Pre-fetch workspace/project/client data for better performance.
+
+Pre-fetch workspace/project/client/tag data for better performance. `workspace_id` is optional only
+when `TOGGL_DEFAULT_WORKSPACE_ID` is set or your account has a single workspace.
 
 #### `toggl_cache_stats`
-View cache performance metrics.
+
+View cache performance metrics. Hits and misses include entity lookups and cached workspace-scoped
+project/client/tag list reads.
 
 #### `toggl_clear_cache`
+
 Clear all cached data.
 
 ## Performance Optimization
 
 The server uses an intelligent caching system to minimize API calls:
 
-1. **First Run**: Warms cache by fetching workspaces, projects, and clients
-2. **Subsequent Calls**: Uses cached names for hydration (95%+ cache hit rate)
+1. **First Run**: Fetches workspaces and warms the selected workspace when one can be resolved
+2. **Subsequent Calls**: Uses cached workspace/project/client/tag data for list tools and hydration
 3. **Smart Invalidation**: TTL-based expiry with configurable duration
 4. **Memory Efficient**: LRU eviction keeps memory usage under 10MB
 
 ### Typical Performance
-- First report: 2-3 API calls (warm cache + get entries)
-- Subsequent reports: 1 API call (just time entries)
-- Cache hit rate: >95% for typical usage
+
+- First report: workspace/project/client/tag fetches as needed, plus time entries
+- Subsequent reports: usually 1 API call for time entries, with names hydrated from cache
+- Repeated project/client list calls: served from cache until TTL expiry
 
 ## Usage Examples
 
 ### Daily Standup Report
+
 ```javascript
 // Get today's time entries with full details
-toggl_daily_report({ "format": "text" })
+toggl_daily_report({ format: 'text' });
 ```
 
 ### Weekly Summary for Automation Hub
+
 ```javascript
 // Get last week's data as JSON
-toggl_weekly_report({ "week_offset": -1 })
+toggl_weekly_report({ week_offset: -1 });
 ```
 
 ### Project Hours Tracking
+
 ```javascript
 // Get this month's hours by project
-toggl_project_summary({ "period": "month" })
+toggl_project_summary({ period: 'month' });
 ```
 
 ## Integration with Automation Hub
@@ -291,6 +337,7 @@ The server returns structured JSON perfect for Automation Hub workflows:
 ## Troubleshooting
 
 ### API Key Issues
+
 - Ensure your API key is correct (get from https://track.toggl.com/profile)
 - API key goes in the username field, "api_token" as password for basic auth
 - Trim whitespace: copy/paste can include trailing spaces/newlines which cause 401/403
@@ -298,6 +345,7 @@ The server returns structured JSON perfect for Automation Hub workflows:
 - If you see 401/403, regenerate the token on your Toggl profile and update your MCP config
 
 ### Security & Token Lifecycle
+
 - This server uses Basic Auth with a Toggl API token, not OAuth; there is no refresh token to manage.
 - Toggl API tokens do not expire automatically. They only change if you manually regenerate them or if Toggl invalidates them during a security event.
 - If you regenerate your token, the old one stops working immediately. Update the `TOGGL_API_KEY` in your Claude/Cursor config and restart the client.
@@ -305,15 +353,24 @@ The server returns structured JSON perfect for Automation Hub workflows:
 - Claude Desktop stores the env value in `claude_desktop_config.json` on your machine. Treat that file as sensitive and do not share it.
 
 ### Quick Auth Check
+
 You can verify connectivity by calling the `toggl_check_auth` tool, which pings `/me` and lists your available workspaces without exposing your token.
 
 ### Rate Limiting
-- The server implements automatic retry with exponential backoff
-- Respects Toggl's rate limits (max 1 request per second)
+
+- The server implements bounded automatic retry for short 429 rate-limit windows
+- Longer Toggl quota windows return structured errors with `retry_after_seconds` instead of making the MCP client appear stuck
+- Use `toggl_warm_cache` once per workspace and rely on cached list tools to avoid repeated project/client fetches
 
 ### Cache Issues
+
 - Run `toggl_clear_cache` if data seems stale
 - Adjust `TOGGL_CACHE_TTL` for your needs (default: 1 hour)
+
+### Claude Desktop Chart Issues
+
+- For timeline charts, prefer summary-only data: call `toggl_get_timeline` with `include_events: false`
+- If Claude Desktop blanks while rendering a generated chart but the MCP server logs do not show a crash, restart Claude Desktop and retry with smaller summarized inputs
 
 ## Development
 

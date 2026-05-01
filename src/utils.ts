@@ -219,24 +219,26 @@ export function groupEntriesByWorkspace(
   return grouped;
 }
 
+function effectiveDurationSeconds(entry: HydratedTimeEntry): number {
+  if (entry.duration_seconds !== undefined) return entry.duration_seconds;
+
+  if (entry.duration < 0) {
+    return Math.max(0, Math.floor((Date.now() - new Date(entry.start).getTime()) / 1000));
+  }
+
+  return entry.duration;
+}
+
 // Calculate total duration from entries
 export function calculateTotalDuration(entries: HydratedTimeEntry[]): number {
-  return entries.reduce((total, entry) => {
-    // Handle running timers (negative duration)
-    const duration =
-      entry.duration < 0
-        ? Math.floor((Date.now() - new Date(entry.start).getTime()) / 1000)
-        : entry.duration;
-    return total + duration;
-  }, 0);
+  return entries.reduce((total, entry) => total + effectiveDurationSeconds(entry), 0);
 }
 
 // Create a report entry from a hydrated time entry
 export function createReportEntry(entry: HydratedTimeEntry): ReportEntry {
-  const duration =
-    entry.duration < 0
-      ? Math.floor((Date.now() - new Date(entry.start).getTime()) / 1000)
-      : entry.duration;
+  const duration = effectiveDurationSeconds(entry);
+  const tagNames = entry.tag_names ?? [];
+  const tags = entry.tags ?? [];
 
   return {
     id: entry.id,
@@ -249,7 +251,7 @@ export function createReportEntry(entry: HydratedTimeEntry): ReportEntry {
     stop: entry.stop,
     duration_hours: secondsToHours(duration),
     duration_seconds: duration,
-    tags: entry.tag_names || entry.tags,
+    tags: tagNames.length > 0 ? tagNames : tags,
     billable: entry.billable,
   };
 }
@@ -262,7 +264,7 @@ export function generateProjectSummary(
   const totalSeconds = calculateTotalDuration(entries);
   const billableSeconds = entries
     .filter((e) => e.billable)
-    .reduce((total, e) => total + (e.duration < 0 ? 0 : e.duration), 0);
+    .reduce((total, e) => total + effectiveDurationSeconds(e), 0);
 
   return {
     project_id: entries[0]?.project_id,
@@ -286,7 +288,7 @@ export function generateWorkspaceSummary(
   const totalSeconds = calculateTotalDuration(entries);
   const billableSeconds = entries
     .filter((e) => e.billable)
-    .reduce((total, e) => total + (e.duration < 0 ? 0 : e.duration), 0);
+    .reduce((total, e) => total + effectiveDurationSeconds(e), 0);
 
   const projectIds = new Set(entries.map((e) => e.project_id).filter(Boolean));
 

@@ -21,6 +21,37 @@ export class TimelineNotEnabledError extends Error {
   }
 }
 
+export class TogglAPIError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly retry_after_seconds?: number;
+  readonly tip?: string;
+  readonly noRetry = true;
+
+  constructor({
+    status,
+    code,
+    message,
+    retryAfterSeconds,
+    tip,
+  }: {
+    status: number;
+    code: string;
+    message: string;
+    retryAfterSeconds?: number;
+    tip?: string;
+  }) {
+    super(message);
+    this.name = 'TogglAPIError';
+    this.status = status;
+    this.code = code;
+    this.retry_after_seconds = retryAfterSeconds;
+    this.tip = tip;
+  }
+}
+
+const MAX_AUTO_RETRY_MS = 30_000;
+
 export class TogglAPI {
   private baseUrl = 'https://api.track.toggl.com/api/v9';
   private timelineBaseUrl = 'https://track.toggl.com/api/v9';
@@ -49,18 +80,39 @@ export class TogglAPI {
           body: body ? JSON.stringify(body) : undefined,
         });
 
-        // Handle rate limiting
+        // Handle rate limiting without sleeping for multi-minute quota resets.
         if (response.status === 429) {
-          const retryAfter = response.headers.get('Retry-After');
-          const delay = retryAfter ? parseInt(retryAfter) * 1000 : (i + 1) * 2000;
-          // Log to stderr so we don't pollute MCP stdio
-          console.error(`Rate limited. Retrying after ${delay}ms...`);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          continue;
+          const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'));
+          const delay = retryAfterSeconds !== undefined ? retryAfterSeconds * 1000 : (i + 1) * 2000;
+          if (delay <= MAX_AUTO_RETRY_MS && i < retries - 1) {
+            // Log to stderr so we don't pollute MCP stdio
+            console.error(`Rate limited. Retrying after ${delay}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            continue;
+          }
+
+          throw new TogglAPIError({
+            status: response.status,
+            code: 'RATE_LIMITED',
+            message: 'Toggl API rate limit reached.',
+            retryAfterSeconds,
+            tip: 'Retry after the indicated delay, or use cached/list summary tools to reduce repeated Toggl API calls.',
+          });
         }
 
         if (!response.ok) {
           const text = await response.text();
+          if (response.status === 402) {
+            const retryAfterSeconds = parseQuotaResetSeconds(text);
+            throw new TogglAPIError({
+              status: response.status,
+              code: 'TOGGL_QUOTA_LIMIT',
+              message: `Toggl API quota limit reached.${retryAfterSeconds !== undefined ? ` Quota resets in ${retryAfterSeconds} seconds.` : ''}`,
+              retryAfterSeconds,
+              tip: 'Wait for the Toggl quota window to reset. Cache-backed list tools avoid repeated project/client fetches after they are warmed.',
+            });
+          }
+
           const isAuth = response.status === 401 || response.status === 403;
           const message = isAuth
             ? `Authentication failed (${response.status}). ` +
@@ -327,22 +379,22 @@ export class TogglAPI {
         });
 
         if (response.status === 429) {
-          const retryAfter = response.headers.get('Retry-After');
-          let delay: number;
-          if (retryAfter) {
-            const deltaSeconds = parseInt(retryAfter, 10);
-            if (Number.isFinite(deltaSeconds)) {
-              delay = deltaSeconds * 1000;
-            } else {
-              const dateMs = Date.parse(retryAfter);
-              delay = Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : (attempt + 1) * 2000;
-            }
-          } else {
-            delay = (attempt + 1) * 2000;
+          const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'));
+          const delay =
+            retryAfterSeconds !== undefined ? retryAfterSeconds * 1000 : (attempt + 1) * 2000;
+          if (delay <= MAX_AUTO_RETRY_MS && attempt < maxRetries - 1) {
+            console.error(`Timeline rate limited. Retrying after ${delay}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            continue;
           }
-          console.error(`Timeline rate limited. Retrying after ${delay}ms...`);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          continue;
+
+          throw new TogglAPIError({
+            status: response.status,
+            code: 'RATE_LIMITED',
+            message: 'Toggl timeline API rate limit reached.',
+            retryAfterSeconds,
+            tip: 'Retry after the indicated delay. For Claude Desktop charts, request summary-only timeline output with include_events: false.',
+          });
         }
 
         const text = await response.text();
@@ -392,6 +444,24 @@ function parseTimelineError(text: string): string {
   } catch (_error) {
     return text;
   }
+}
+
+function parseRetryAfterSeconds(value: string | null): number | undefined {
+  if (!value) return undefined;
+
+  const deltaSeconds = Number.parseInt(value, 10);
+  if (Number.isFinite(deltaSeconds)) return deltaSeconds;
+
+  const dateMs = Date.parse(value);
+  if (!Number.isFinite(dateMs)) return undefined;
+  return Math.max(0, Math.ceil((dateMs - Date.now()) / 1000));
+}
+
+function parseQuotaResetSeconds(text: string): number | undefined {
+  const match = /quota will reset in (\d+) seconds/i.exec(text);
+  if (!match) return undefined;
+  const seconds = Number.parseInt(match[1]!, 10);
+  return Number.isFinite(seconds) ? seconds : undefined;
 }
 
 function isTimelineEvent(value: unknown): value is TimelineEvent {

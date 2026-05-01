@@ -114,9 +114,12 @@ export interface TimeEntry {
   start: string;
   stop?: string;
   duration: number; // In seconds, negative if currently running
+  duration_seconds?: number; // Effective duration in seconds, elapsed for running entries
+  running?: boolean;
+  elapsed_seconds?: number;
   description?: string;
-  tags?: string[];
-  tag_ids?: number[];
+  tags?: string[] | null;
+  tag_ids?: number[] | null;
   duronly?: boolean;
   at?: string;
   server_deleted_at?: string;
@@ -135,7 +138,11 @@ export interface HydratedTimeEntry extends TimeEntry {
   client_name?: string;
   client_id?: number;
   user_name?: string;
-  tag_names?: string[];
+  tags: string[];
+  tag_ids: number[];
+  tag_names: string[];
+  running: boolean;
+  duration_seconds: number;
 }
 
 // Report interfaces

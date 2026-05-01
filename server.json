@@ -68,7 +68,7 @@
     },
     {
       "name": "toggl_warm_cache",
-      "description": "Pre-fetch workspace, project, and client data"
+      "description": "Pre-fetch workspace, project, client, and tag data"
     },
     {
       "name": "toggl_cache_stats",

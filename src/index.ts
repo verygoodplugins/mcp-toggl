@@ -7,9 +7,10 @@ import {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { config } from 'dotenv';
-import { TogglAPI, TimelineNotEnabledError } from './toggl-api.js';
+import { TogglAPI, TimelineNotEnabledError, TogglAPIError } from './toggl-api.js';
 import { buildTimelineResponse } from './timeline.js';
 import { CacheManager } from './cache-manager.js';
+import { WorkspaceResolutionError, parseWorkspaceId, resolveWorkspaceId } from './workspace.js';
 import {
   getDateRange,
   generateDailyReport,
@@ -45,6 +46,32 @@ function jsonResponse(data: unknown) {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'An error occurred';
+}
+
+function errorPayload(error: unknown): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    error: true,
+    message: errorMessage(error),
+  };
+
+  if (error instanceof TogglAPIError) {
+    payload.code = error.code;
+    payload.status = error.status;
+    if (error.retry_after_seconds !== undefined) {
+      payload.retry_after_seconds = error.retry_after_seconds;
+    }
+    if (error.tip) {
+      payload.tip = error.tip;
+    }
+  }
+
+  if (error instanceof WorkspaceResolutionError) {
+    payload.code = error.code;
+    payload.tip = error.tip;
+    payload.available_workspaces = error.available_workspaces;
+  }
+
+  return payload;
 }
 
 // Version for CLI output and server metadata
@@ -118,9 +145,7 @@ const cacheConfig: CacheConfig = {
   batchSize: parseInt(process.env.TOGGL_BATCH_SIZE || '100'),
 };
 
-const defaultWorkspaceId = process.env.TOGGL_DEFAULT_WORKSPACE_ID
-  ? parseInt(process.env.TOGGL_DEFAULT_WORKSPACE_ID)
-  : undefined;
+const defaultWorkspaceId = parseWorkspaceId(process.env.TOGGL_DEFAULT_WORKSPACE_ID);
 
 // Initialize API and cache
 const api = new TogglAPI(API_KEY);
@@ -134,12 +159,29 @@ let cacheWarmed = false;
 async function ensureCache(): Promise<void> {
   if (!cacheWarmed) {
     try {
-      await cache.warmCache(defaultWorkspaceId);
+      const workspaces = await cache.getWorkspaces();
+      const singleWorkspaceId = workspaces.length === 1 ? workspaces[0]!.id : undefined;
+      const workspaceIdToWarm = defaultWorkspaceId || singleWorkspaceId;
+      if (workspaceIdToWarm) {
+        await cache.warmCache(workspaceIdToWarm);
+      }
       cacheWarmed = true;
     } catch (error) {
       console.error('Failed to warm cache:', error);
     }
   }
+}
+
+async function resolveWorkspaceForTool(
+  args: Record<string, unknown> | undefined,
+  action: string
+): Promise<number> {
+  return resolveWorkspaceId({
+    explicitWorkspaceId: args?.workspace_id,
+    defaultWorkspaceId,
+    getWorkspaces: () => cache.getWorkspaces(),
+    action,
+  });
 }
 
 // Create MCP server
@@ -240,7 +282,8 @@ const tools: Tool[] = [
         },
         workspace_id: {
           type: 'number',
-          description: 'Workspace ID (uses default if not provided)',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
         },
         project_id: {
           type: 'number',
@@ -407,7 +450,8 @@ const tools: Tool[] = [
       properties: {
         workspace_id: {
           type: 'number',
-          description: 'Workspace ID (uses default if not provided)',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
         },
       },
     },
@@ -425,7 +469,8 @@ const tools: Tool[] = [
       properties: {
         workspace_id: {
           type: 'number',
-          description: 'Workspace ID (uses default if not provided)',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
         },
       },
     },
@@ -434,7 +479,8 @@ const tools: Tool[] = [
   // Cache management
   {
     name: 'toggl_warm_cache',
-    description: 'Pre-fetch and cache workspace, project, and client data for better performance',
+    description:
+      'Pre-fetch and cache workspace, project, client, and tag data for better performance',
     annotations: {
       readOnlyHint: true,
       idempotentHint: true,
@@ -445,7 +491,8 @@ const tools: Tool[] = [
       properties: {
         workspace_id: {
           type: 'number',
-          description: 'Specific workspace to warm cache for',
+          description:
+            'Workspace ID to warm. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
         },
       },
     },
@@ -544,7 +591,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // Health/authentication
       case 'toggl_check_auth': {
         const me = await api.getMe();
-        const workspaces = await api.getWorkspaces();
+        const workspaces = await cache.getWorkspaces();
         const maskEmail = (e?: string) => {
           if (!e) return undefined as unknown as string;
           const [user, domain] = e.split('@');
@@ -662,15 +709,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'toggl_start_timer': {
-        const workspaceId = args?.workspace_id || defaultWorkspaceId;
-        if (!workspaceId) {
-          throw new Error(
-            'Workspace ID required (set TOGGL_DEFAULT_WORKSPACE_ID or provide workspace_id)'
-          );
-        }
+        const workspaceId = await resolveWorkspaceForTool(args, 'starting a timer');
 
         const entry = await api.startTimer(
-          workspaceId as number,
+          workspaceId,
           args?.description as string | undefined,
           args?.project_id as number | undefined,
           args?.task_id as number | undefined,
@@ -912,7 +954,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // Management tools
       case 'toggl_list_workspaces': {
-        const workspaces = await api.getWorkspaces();
+        const workspaces = await cache.getWorkspaces();
 
         return {
           content: [
@@ -937,14 +979,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'toggl_list_projects': {
-        const workspaceId = args?.workspace_id || defaultWorkspaceId;
-        if (!workspaceId) {
-          throw new Error(
-            'Workspace ID required (set TOGGL_DEFAULT_WORKSPACE_ID or provide workspace_id)'
-          );
-        }
+        const workspaceId = await resolveWorkspaceForTool(args, 'listing projects');
 
-        const projects = await api.getProjects(workspaceId as number);
+        const projects = await cache.getProjects(workspaceId);
 
         return {
           content: [
@@ -972,14 +1009,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'toggl_list_clients': {
-        const workspaceId = args?.workspace_id || defaultWorkspaceId;
-        if (!workspaceId) {
-          throw new Error(
-            'Workspace ID required (set TOGGL_DEFAULT_WORKSPACE_ID or provide workspace_id)'
-          );
-        }
+        const workspaceId = await resolveWorkspaceForTool(args, 'listing clients');
 
-        const clients = await api.getClients(workspaceId as number);
+        const clients = await cache.getClients(workspaceId);
 
         return {
           content: [
@@ -1005,7 +1037,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // Cache management
       case 'toggl_warm_cache': {
-        const workspaceId = (args?.workspace_id as number | undefined) || defaultWorkspaceId;
+        const workspaceId = await resolveWorkspaceForTool(args, 'warming the cache');
         await cache.warmCache(workspaceId);
         cacheWarmed = true;
 
@@ -1102,10 +1134,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`Unknown tool: ${name}`);
     }
   } catch (error: unknown) {
-    return jsonResponse({
-      error: true,
-      message: errorMessage(error),
-    });
+    return jsonResponse(errorPayload(error));
   }
 });
 
