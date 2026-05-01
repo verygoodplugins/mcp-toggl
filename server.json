@@ -3,7 +3,7 @@
   "name": "io.github.verygoodplugins/mcp-toggl",
   "title": "MCP Toggl",
   "description": "Toggl Track time tracking with intelligent caching and reporting",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "websiteUrl": "https://verygoodplugins.com/?utm_source=mcp-registry",
   "repository": {
     "url": "https://github.com/verygoodplugins/mcp-toggl",
@@ -13,8 +13,10 @@
     {
       "registryType": "npm",
       "identifier": "@verygoodplugins/mcp-toggl",
-      "version": "1.0.0",
-      "transport": { "type": "stdio" }
+      "version": "1.1.0",
+      "transport": {
+        "type": "stdio"
+      }
     }
   ],
   "tools": [
