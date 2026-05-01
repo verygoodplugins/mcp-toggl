@@ -11,10 +11,19 @@ import type {
   TimeEntriesRequest,
   CreateTimeEntryRequest,
   UpdateTimeEntryRequest,
+  TimelineEvent,
 } from './types.js';
+
+export class TimelineNotEnabledError extends Error {
+  constructor() {
+    super('Timeline is not enabled');
+    this.name = 'TimelineNotEnabledError';
+  }
+}
 
 export class TogglAPI {
   private baseUrl = 'https://api.track.toggl.com/api/v9';
+  private timelineBaseUrl = 'https://track.toggl.com/api/v9';
   private headers: Record<string, string>;
 
   constructor(apiKey: string) {
@@ -52,15 +61,18 @@ export class TogglAPI {
 
         if (!response.ok) {
           const text = await response.text();
-          if (response.status === 401 || response.status === 403) {
-            // Normalize common auth failure into a clearer message
-            throw new Error(
-              `Authentication failed (${response.status}). ` +
-                `Verify TOGGL_API_KEY is correct, has no leading/trailing spaces, and is the Toggl Track API token. ` +
-                `Server response: ${text}`
-            );
+          const isAuth = response.status === 401 || response.status === 403;
+          const message = isAuth
+            ? `Authentication failed (${response.status}). ` +
+              `Verify TOGGL_API_KEY is correct, has no leading/trailing spaces, and is the Toggl Track API token. ` +
+              `Server response: ${text}`
+            : `Toggl API error (${response.status}): ${text}`;
+          const err = new Error(message);
+          // 4xx client errors won't succeed on retry (incl. 401/403); 5xx and network errors do retry.
+          if (response.status >= 400 && response.status < 500) {
+            Object.assign(err, { noRetry: true });
           }
-          throw new Error(`Toggl API error (${response.status}): ${text}`);
+          throw err;
         }
 
         // Handle 204 No Content
@@ -69,9 +81,9 @@ export class TogglAPI {
         }
 
         return (await response.json()) as T;
-      } catch (error) {
-        if (i === retries - 1) throw error;
-        // Exponential backoff
+      } catch (error: any) {
+        if (error?.noRetry || i === retries - 1) throw error;
+        // Exponential backoff for transient/network errors
         await new Promise((resolve) => setTimeout(resolve, (i + 1) * 1000));
       }
     }
@@ -302,4 +314,97 @@ export class TogglAPI {
 
     return response.json();
   }
+
+  async getTimeline(): Promise<TimelineEvent[]> {
+    const url = `${this.timelineBaseUrl}/timeline`;
+    const maxRetries = 3;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: this.headers,
+        });
+
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After');
+          let delay: number;
+          if (retryAfter) {
+            const deltaSeconds = parseInt(retryAfter, 10);
+            if (Number.isFinite(deltaSeconds)) {
+              delay = deltaSeconds * 1000;
+            } else {
+              const dateMs = Date.parse(retryAfter);
+              delay = Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : (attempt + 1) * 2000;
+            }
+          } else {
+            delay = (attempt + 1) * 2000;
+          }
+          console.error(`Timeline rate limited. Retrying after ${delay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+
+        const text = await response.text();
+
+        if (!response.ok) {
+          if (response.status === 400 && parseTimelineError(text) === 'Timeline is not enabled') {
+            throw new TimelineNotEnabledError();
+          }
+
+          const isAuth = response.status === 401 || response.status === 403;
+          const message = isAuth
+            ? `Timeline authentication failed (${response.status}). Verify TOGGL_API_KEY is correct. Server response: ${text}`
+            : `Timeline API error (${response.status}): ${text}`;
+          const err = new Error(message);
+          if (response.status >= 400 && response.status < 500) {
+            Object.assign(err, { noRetry: true });
+          }
+          throw err;
+        }
+
+        const data = JSON.parse(text) as unknown;
+        if (!Array.isArray(data)) {
+          throw new Error('Timeline API returned invalid response format');
+        }
+
+        return data.filter(isTimelineEvent);
+      } catch (error: any) {
+        if (
+          error instanceof TimelineNotEnabledError ||
+          error?.noRetry ||
+          attempt === maxRetries - 1
+        ) {
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 1000));
+      }
+    }
+
+    throw new Error('Max retries reached for timeline');
+  }
+}
+
+function parseTimelineError(text: string): string {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return typeof parsed === 'string' ? parsed : text;
+  } catch (_error) {
+    return text;
+  }
+}
+
+function isTimelineEvent(value: unknown): value is TimelineEvent {
+  if (typeof value !== 'object' || value === null) return false;
+  const event = value as Record<string, unknown>;
+
+  return (
+    typeof event.id === 'number' &&
+    typeof event.start_time === 'number' &&
+    (typeof event.end_time === 'number' || event.end_time === null) &&
+    typeof event.desktop_id === 'string' &&
+    typeof event.idle === 'boolean' &&
+    (typeof event.filename === 'string' || event.filename === null) &&
+    (typeof event.title === 'string' || event.title === null)
+  );
 }

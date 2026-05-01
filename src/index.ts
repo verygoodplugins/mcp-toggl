@@ -7,7 +7,8 @@ import {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { config } from 'dotenv';
-import { TogglAPI } from './toggl-api.js';
+import { TogglAPI, TimelineNotEnabledError } from './toggl-api.js';
+import { buildTimelineResponse } from './timeline.js';
 import { CacheManager } from './cache-manager.js';
 import {
   getDateRange,
@@ -21,13 +22,29 @@ import {
   generateWorkspaceSummary,
   toLocalYMD,
   parseLocalYMD,
+  localDateRangeFromArgs,
 } from './utils.js';
-import type { CacheConfig, TimeEntry } from './types.js';
+import type { CacheConfig, TimelineEvent, TimeEntry } from './types.js';
 
 function parseInclusiveEndDate(value: string): Date {
   const date = parseLocalYMD(value);
   date.setDate(date.getDate() + 1);
   return date;
+}
+
+function jsonResponse(data: unknown) {
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify(data, null, 2),
+      },
+    ],
+  };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'An error occurred';
 }
 
 // Version for CLI output and server metadata
@@ -459,6 +476,56 @@ const tools: Tool[] = [
       type: 'object',
       properties: {},
       required: [],
+    },
+  },
+  {
+    name: 'toggl_get_timeline',
+    description:
+      'Get Toggl Desktop activity timeline showing application usage. PRIVACY NOTE: raw events include window titles that may contain sensitive document names, email subjects, chat text, URLs, OAuth pages, or database names; use include_events: false for privacy-conscious summary-only usage. Requires Toggl Track Desktop timeline sync to be enabled. Response semantics: summary is { [appName: string]: total_seconds }; total_events is the post-filter event count; returned_events is the returned events array length; truncated means only the events array was limited, never the summary. limit does not affect summary calculation. total_seconds is canonical; total_hours is rounded to 4 decimals for display.',
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        period: {
+          type: 'string',
+          enum: ['today', 'yesterday', 'week', 'lastWeek', 'month', 'lastMonth'],
+          description: 'Predefined period (alternative to start_date/end_date)',
+        },
+        start_date: {
+          type: 'string',
+          description: 'Start date (YYYY-MM-DD format, inclusive, local timezone)',
+        },
+        end_date: {
+          type: 'string',
+          description: 'End date (YYYY-MM-DD format, inclusive, local timezone)',
+        },
+        app: {
+          type: 'string',
+          description: 'Filter by application name, case-insensitive partial match',
+        },
+        include_events: {
+          type: 'boolean',
+          description: 'Include raw events array (default: true). Set false for summary only.',
+        },
+        redact_titles: {
+          type: 'boolean',
+          default: false,
+          description:
+            'When true, returned events keep app name, timestamps, duration, idle state, and desktop_id, but set title to null.',
+        },
+        limit: {
+          type: 'number',
+          minimum: 1,
+          maximum: 1000,
+          default: 50,
+          description:
+            'Maximum events to return in events array (default: 50, max: 1000). Does not affect summary calculation.',
+        },
+      },
     },
   },
 ];
@@ -1004,26 +1071,41 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      case 'toggl_get_timeline': {
+        localDateRangeFromArgs(args);
+
+        let allEvents: TimelineEvent[];
+        try {
+          allEvents = await api.getTimeline();
+        } catch (error) {
+          if (error instanceof TimelineNotEnabledError) {
+            return jsonResponse({
+              enabled: false,
+              total_events: 0,
+              returned_events: 0,
+              truncated: false,
+              total_seconds: 0,
+              total_hours: 0,
+              summary: {},
+              events: [],
+              message:
+                'Toggl Desktop timeline is not enabled yet. Open the Toggl Track Desktop app for Mac, enable timeline/activity tracking and sync, then retry this tool after the app has uploaded activity data.',
+            });
+          }
+          throw error;
+        }
+
+        return jsonResponse(buildTimelineResponse(allEvents, args));
+      }
+
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
-  } catch (error: any) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(
-            {
-              error: true,
-              message: error.message || 'An error occurred',
-              details: error.stack,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+  } catch (error: unknown) {
+    return jsonResponse({
+      error: true,
+      message: errorMessage(error),
+    });
   }
 });
 

@@ -6,6 +6,7 @@ import type {
   WorkspaceSummary,
   ReportEntry,
   DateRange,
+  DatePeriod,
 } from './types.js';
 
 // Convert seconds to hours with decimal precision
@@ -49,14 +50,76 @@ export function toLocalYMD(date: Date): string {
 
 // Parse a YYYY-MM-DD string into a Date at local midnight.
 export function parseLocalYMD(value: string): Date {
-  const [year, month, day] = value.split('-').map(Number);
-  return new Date(year, (month ?? 1) - 1, day ?? 1, 0, 0, 0, 0);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    throw new Error(`Invalid date format: ${value}. Expected YYYY-MM-DD.`);
+  }
+
+  const [, yearStr, monthStr, dayStr] = match;
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+  const date = new Date(year, month - 1, day, 0, 0, 0, 0);
+
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    throw new Error(`Invalid calendar date: ${value}`);
+  }
+
+  return date;
+}
+
+export function isDatePeriod(value: unknown): value is DatePeriod {
+  return (
+    value === 'today' ||
+    value === 'yesterday' ||
+    value === 'week' ||
+    value === 'lastWeek' ||
+    value === 'month' ||
+    value === 'lastMonth'
+  );
+}
+
+export function localDateRangeFromArgs(
+  args: Record<string, unknown> | undefined
+): { start: Date | null; end: Date | null } | null {
+  if (args?.period !== undefined) {
+    if (!isDatePeriod(args.period)) {
+      throw new Error(
+        `Invalid period: ${String(args.period)}. Must be one of: today, yesterday, week, lastWeek, month, lastMonth`
+      );
+    }
+    return getDateRange(args.period);
+  }
+
+  const startValue = args?.start_date;
+  const endValue = args?.end_date;
+
+  if (startValue === undefined && endValue === undefined) {
+    return null;
+  }
+
+  if (startValue !== undefined && typeof startValue !== 'string') {
+    throw new Error('start_date must be a YYYY-MM-DD string');
+  }
+  if (endValue !== undefined && typeof endValue !== 'string') {
+    throw new Error('end_date must be a YYYY-MM-DD string');
+  }
+
+  const start = startValue ? parseLocalYMD(startValue) : null;
+  const end = endValue ? parseLocalYMD(endValue) : null;
+  if (end) {
+    end.setDate(end.getDate() + 1);
+  }
+
+  if (start && end && start >= end) {
+    throw new Error('start_date must be before or equal to end_date');
+  }
+
+  return { start, end };
 }
 
 // Get date range for various periods
-export function getDateRange(
-  period: 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth'
-): DateRange {
+export function getDateRange(period: DatePeriod): DateRange {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 

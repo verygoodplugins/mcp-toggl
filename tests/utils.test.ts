@@ -5,6 +5,8 @@ import {
   generateWeeklyReport,
   formatDuration,
   getDateRange,
+  isDatePeriod,
+  localDateRangeFromArgs,
   parseLocalYMD,
   secondsToHours,
   toLocalYMD,
@@ -44,6 +46,27 @@ describe('local date ranges', () => {
     expect(parsed.getHours()).toBe(0);
   });
 
+  it('rejects malformed and impossible local dates', () => {
+    expect(() => parseLocalYMD('2026-4-19')).toThrow('Invalid date format');
+    expect(() => parseLocalYMD('2026-02-30')).toThrow('Invalid calendar date');
+  });
+
+  it('validates supported period names', () => {
+    expect(isDatePeriod('today')).toBe(true);
+    expect(isDatePeriod('lastMonth')).toBe(true);
+    expect(isDatePeriod('quarter')).toBe(false);
+  });
+
+  it('resolves inclusive end dates to exclusive local boundaries', () => {
+    const range = localDateRangeFromArgs({
+      start_date: '2026-04-19',
+      end_date: '2026-04-20',
+    });
+
+    expect(range?.start && toLocalYMD(range.start)).toBe('2026-04-19');
+    expect(range?.end && toLocalYMD(range.end)).toBe('2026-04-21');
+  });
+
   it('uses exclusive local period ends for Toggl date filters', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-19T11:00:00Z'));
@@ -70,11 +93,9 @@ describe('local date ranges', () => {
       tags: [],
     } as HydratedTimeEntry;
 
-    const report = generateWeeklyReport(
-      parseLocalYMD('2026-04-13'),
-      parseLocalYMD('2026-04-19'),
-      [entry]
-    );
+    const report = generateWeeklyReport(parseLocalYMD('2026-04-13'), parseLocalYMD('2026-04-19'), [
+      entry,
+    ]);
 
     expect(report.daily_breakdown).toHaveLength(1);
     expect(report.daily_breakdown[0]?.date).toBe('2026-04-19');
