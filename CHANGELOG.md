@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.1.0](https://github.com/verygoodplugins/mcp-toggl/compare/v1.0.0...v1.1.0) (2026-05-01)
+## [1.1.0](https://github.com/verygoodplugins/mcp-toggl/compare/v1.0.0...mcp-toggl-v1.1.0) (2026-05-01)
 
 
 ### Features
