@@ -41,6 +41,100 @@ function createAPI() {
 }
 
 describe('cache manager', () => {
+  it('refreshes an existing entity without evicting another cached entity', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-01T10:00:00.000Z'));
+
+    const api = {
+      ...createAPI(),
+      getWorkspace: vi.fn(async (id: number) => ({ id, name: `Workspace ${id}` })),
+    };
+    const cache = new CacheManager({
+      ...config,
+      ttl: 1,
+      maxSize: 12,
+    });
+    cache.setAPI(api);
+
+    await cache.getWorkspace(1);
+    await cache.getWorkspace(2);
+
+    vi.setSystemTime(new Date('2026-05-01T10:00:00.002Z'));
+    await cache.getWorkspace(2);
+
+    const workspaces = (
+      cache as unknown as { workspaces: Map<number, unknown> }
+    ).workspaces;
+    expect([...workspaces.keys()]).toEqual([1, 2]);
+  });
+
+  it('does not cache oversized workspace-scoped project, client, or tag collections', async () => {
+    const oversizedProjects: Project[] = [
+      { id: 10, workspace_id: 1, name: 'Project 1' },
+      { id: 11, workspace_id: 1, name: 'Project 2' },
+    ];
+    const oversizedClients: Client[] = [
+      { id: 20, workspace_id: 1, name: 'Client 1' },
+      { id: 21, workspace_id: 1, name: 'Client 2' },
+    ];
+    const oversizedTags: Tag[] = [
+      { id: 30, workspace_id: 1, name: 'tag-1' },
+      { id: 31, workspace_id: 1, name: 'tag-2' },
+    ];
+    const api = {
+      ...createAPI(),
+      getProjects: vi.fn(async () => oversizedProjects),
+      getClients: vi.fn(async () => oversizedClients),
+      getTags: vi.fn(async () => oversizedTags),
+    };
+    const cache = new CacheManager({
+      ...config,
+      maxSize: 6,
+    });
+    cache.setAPI(api);
+
+    await expect(cache.getProjects(1)).resolves.toEqual(oversizedProjects);
+    await expect(cache.getProjects(1)).resolves.toEqual(oversizedProjects);
+    await expect(cache.getClients(1)).resolves.toEqual(oversizedClients);
+    await expect(cache.getClients(1)).resolves.toEqual(oversizedClients);
+    await expect(cache.getTags(1)).resolves.toEqual(oversizedTags);
+    await expect(cache.getTags(1)).resolves.toEqual(oversizedTags);
+
+    expect(api.getProjects).toHaveBeenCalledTimes(2);
+    expect(api.getClients).toHaveBeenCalledTimes(2);
+    expect(api.getTags).toHaveBeenCalledTimes(2);
+  });
+
+  it('evicts per-workspace collection caches only when adding a new workspace', async () => {
+    const api = {
+      ...createAPI(),
+      getProjects: vi.fn(async (workspaceId: number) => [
+        {
+          id: workspaceId * 10,
+          workspace_id: workspaceId,
+          name: `Project ${workspaceId}`,
+        },
+      ]),
+    };
+    const cache = new CacheManager({
+      ...config,
+      maxSize: 12,
+    });
+    cache.setAPI(api);
+
+    await cache.getProjects(1);
+    await cache.getProjects(2);
+    await cache.getProjects(2);
+    await cache.getProjects(3);
+    await cache.getProjects(1);
+
+    expect(api.getProjects).toHaveBeenCalledTimes(4);
+    expect(api.getProjects).toHaveBeenNthCalledWith(1, 1);
+    expect(api.getProjects).toHaveBeenNthCalledWith(2, 2);
+    expect(api.getProjects).toHaveBeenNthCalledWith(3, 3);
+    expect(api.getProjects).toHaveBeenNthCalledWith(4, 1);
+  });
+
   it('serves warmed workspace collections from cache and records hits', async () => {
     const api = createAPI();
     const cache = new CacheManager(config);

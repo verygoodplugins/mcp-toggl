@@ -70,14 +70,13 @@ export class CacheManager {
   }
 
   private cacheBucketLimit(): number {
-    return Math.max(1, Math.floor(this.config.maxSize / 6));
+    return Math.max(1, Math.ceil(this.config.maxSize / 6));
   }
 
   // Generic cache setter
   private setCached<T>(cache: Map<number, CacheEntry<T>>, id: number, data: T): void {
-    // Enforce max cache size with LRU eviction
-    if (cache.size >= this.cacheBucketLimit()) {
-      // Divide by 6 for each cache type
+    // Enforce per-cache bucket size using insertion-order eviction.
+    if (!cache.has(id) && cache.size >= this.cacheBucketLimit()) {
       const firstKey = cache.keys().next().value;
       if (firstKey !== undefined) {
         cache.delete(firstKey);
@@ -98,7 +97,7 @@ export class CacheManager {
       return;
     }
 
-    if (cache.size >= limit) {
+    if (!cache.has(id) && cache.size >= limit) {
       const firstKey = cache.keys().next().value;
       if (firstKey !== undefined) {
         cache.delete(firstKey);
