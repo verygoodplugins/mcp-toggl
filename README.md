@@ -115,6 +115,11 @@ Edit `.mcp.json` in your project:
 
 ## Available Tools
 
+### Authentication
+
+#### `toggl_check_auth`
+Verify Toggl API connectivity and confirm your token can access available workspaces without exposing the token.
+
 ### Time Tracking
 
 #### `toggl_get_time_entries`
@@ -174,6 +179,26 @@ Get total hours per project for a date range.
 
 #### `toggl_workspace_summary`
 Get total hours per workspace.
+
+#### `toggl_get_timeline`
+Get Toggl Desktop activity timeline data with application usage summaries and optional raw events. Requires Toggl Track Desktop timeline sync to be enabled.
+
+Privacy note: raw timeline events can include window titles that may contain document names, email subjects, chat text, URLs, OAuth pages, or database names. For privacy-conscious usage, request summary-only output:
+```json
+{
+  "period": "today",
+  "include_events": false
+}
+```
+
+To return events while hiding window titles:
+```json
+{
+  "period": "today",
+  "redact_titles": true,
+  "limit": 50
+}
+```
 
 ### Management
 

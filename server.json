@@ -19,28 +19,68 @@
   ],
   "tools": [
     {
-      "name": "toggl_get_current",
-      "description": "Get currently running time entry"
+      "name": "toggl_check_auth",
+      "description": "Verify Toggl API connectivity and authentication"
     },
     {
-      "name": "toggl_start",
-      "description": "Start a new time entry"
+      "name": "toggl_get_time_entries",
+      "description": "Get time entries with optional date range filters"
     },
     {
-      "name": "toggl_stop",
-      "description": "Stop the current time entry"
+      "name": "toggl_get_current_entry",
+      "description": "Get the currently running time entry"
     },
     {
-      "name": "toggl_get_entries",
-      "description": "Get time entries for a date range"
+      "name": "toggl_start_timer",
+      "description": "Start a new time entry timer"
     },
     {
-      "name": "toggl_get_projects",
-      "description": "List all projects"
+      "name": "toggl_stop_timer",
+      "description": "Stop the currently running timer"
     },
     {
-      "name": "toggl_report",
-      "description": "Generate time reports"
+      "name": "toggl_daily_report",
+      "description": "Generate a daily report with project and workspace breakdowns"
+    },
+    {
+      "name": "toggl_weekly_report",
+      "description": "Generate a weekly report with daily and project breakdowns"
+    },
+    {
+      "name": "toggl_project_summary",
+      "description": "Get total hours per project for a date range"
+    },
+    {
+      "name": "toggl_workspace_summary",
+      "description": "Get total hours per workspace for a date range"
+    },
+    {
+      "name": "toggl_list_workspaces",
+      "description": "List all available workspaces"
+    },
+    {
+      "name": "toggl_list_projects",
+      "description": "List projects in a workspace"
+    },
+    {
+      "name": "toggl_list_clients",
+      "description": "List clients in a workspace"
+    },
+    {
+      "name": "toggl_warm_cache",
+      "description": "Pre-fetch workspace, project, and client data"
+    },
+    {
+      "name": "toggl_cache_stats",
+      "description": "Get cache statistics and performance metrics"
+    },
+    {
+      "name": "toggl_clear_cache",
+      "description": "Clear all cached data"
+    },
+    {
+      "name": "toggl_get_timeline",
+      "description": "Get Toggl Desktop activity timeline summaries and optional raw events"
     }
   ]
 }
