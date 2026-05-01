@@ -75,7 +75,7 @@ function errorPayload(error: unknown): Record<string, unknown> {
 }
 
 // Version for CLI output and server metadata
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 // Basic CLI flags: --help / -h and --version / -v
 const argv = process.argv.slice(2);
