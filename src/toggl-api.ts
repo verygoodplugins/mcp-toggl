@@ -450,7 +450,7 @@ function parseRetryAfterSeconds(value: string | null): number | undefined {
   if (!value) return undefined;
 
   const deltaSeconds = Number.parseInt(value, 10);
-  if (Number.isFinite(deltaSeconds)) return deltaSeconds;
+  if (Number.isFinite(deltaSeconds)) return Math.max(0, deltaSeconds);
 
   const dateMs = Date.parse(value);
   if (!Number.isFinite(dateMs)) return undefined;
