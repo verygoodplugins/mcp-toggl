@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 440" role="img" aria-label="Stacked bar chart of weekly hours by project, Apr 27 to May 1: Mon 2.5, Tue 15.8, Wed 6.9, Thu 2.2, Fri 5.2; total 32.7 hours across 7 projects">
+<title>Week of Apr 27 — 32.7 hours across 7 projects</title>
+<desc>Daily hours stacked by project. Tuesday peaks at 15.8 hours covering Business Development, AutoMem, Automation Hub, and MCP Servers. Wednesday is 6.9 hours of AI Learning. Friday is 5.2 hours, mostly Toggl MCP shipping work.</desc>
+<style>
+.title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 16px; font-weight: 500; fill: #2C2C2A; }
+.subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 12px; fill: #5F5E5A; }
+.axis { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 11px; fill: #5F5E5A; }
+.day-total { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 11px; font-weight: 500; fill: #2C2C2A; }
+.legend-text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 11px; fill: #2C2C2A; }
+.grid { stroke: rgba(0,0,0,0.08); stroke-width: 1; }
+@media (prefers-color-scheme: dark) {
+  .title { fill: #F1EFE8; }
+  .subtitle { fill: #B4B2A9; }
+  .axis { fill: #B4B2A9; }
+  .day-total { fill: #F1EFE8; }
+  .legend-text { fill: #F1EFE8; }
+  .grid { stroke: rgba(255,255,255,0.10); }
+}
+</style>
+
+<text x="20" y="28" class="title">Week of Apr 27 — 32.7 hrs across 7 projects</text>
+<text x="20" y="48" class="subtitle">Daily hours stacked by project · 31 entries</text>
+
+<line x1="60" y1="80" x2="770" y2="80" class="grid" />
+<text x="50" y="84" class="axis" text-anchor="end">16h</text>
+<line x1="60" y1="145" x2="770" y2="145" class="grid" />
+<text x="50" y="149" class="axis" text-anchor="end">12h</text>
+<line x1="60" y1="210" x2="770" y2="210" class="grid" />
+<text x="50" y="214" class="axis" text-anchor="end">8h</text>
+<line x1="60" y1="275" x2="770" y2="275" class="grid" />
+<text x="50" y="279" class="axis" text-anchor="end">4h</text>
+<line x1="60" y1="340" x2="770" y2="340" class="grid" />
+<text x="50" y="344" class="axis" text-anchor="end">0h</text>
+
+<g>
+<rect x="96" y="306.7" width="70" height="33.3" fill="#378ADD" />
+<rect x="96" y="300.0" width="70" height="6.7" fill="#1D9E75" />
+<text x="131" y="293" class="day-total" text-anchor="middle">2.5h</text>
+<text x="131" y="360" class="axis" text-anchor="middle">Mon</text>
+<text x="131" y="375" class="axis" text-anchor="middle">Apr 27</text>
+</g>
+
+<g>
+<rect x="238" y="246.1" width="70" height="93.9" fill="#378ADD" />
+<rect x="238" y="159.8" width="70" height="86.3" fill="#7F77DD" />
+<rect x="238" y="113.2" width="70" height="46.6" fill="#1D9E75" />
+<rect x="238" y="82.6" width="70" height="30.6" fill="#EF9F27" />
+<text x="273" y="76" class="day-total" text-anchor="middle">15.8h</text>
+<text x="273" y="360" class="axis" text-anchor="middle">Tue</text>
+<text x="273" y="375" class="axis" text-anchor="middle">Apr 28</text>
+</g>
+
+<g>
+<rect x="380" y="227.4" width="70" height="112.6" fill="#D85A30" />
+<text x="415" y="220" class="day-total" text-anchor="middle">6.9h</text>
+<text x="415" y="360" class="axis" text-anchor="middle">Wed</text>
+<text x="415" y="375" class="axis" text-anchor="middle">Apr 29</text>
+</g>
+
+<g>
+<rect x="522" y="326.2" width="70" height="13.8" fill="#378ADD" />
+<rect x="522" y="307.5" width="70" height="18.7" fill="#D85A30" />
+<rect x="522" y="303.9" width="70" height="3.6" fill="#1D9E75" />
+<text x="557" y="297" class="day-total" text-anchor="middle">2.2h</text>
+<text x="557" y="360" class="axis" text-anchor="middle">Thu</text>
+<text x="557" y="375" class="axis" text-anchor="middle">Apr 30</text>
+</g>
+
+<g>
+<rect x="664" y="338.05" width="70" height="1.95" fill="#378ADD" />
+<rect x="664" y="312.85" width="70" height="25.2" fill="#1D9E75" />
+<rect x="664" y="267.85" width="70" height="45.0" fill="#D4537E" />
+<rect x="664" y="260.55" width="70" height="7.3" fill="#EF9F27" />
+<rect x="664" y="255.35" width="70" height="5.2" fill="#888780" />
+<text x="699" y="248" class="day-total" text-anchor="middle">5.2h</text>
+<text x="699" y="360" class="axis" text-anchor="middle">Fri</text>
+<text x="699" y="375" class="axis" text-anchor="middle">May 1</text>
+</g>
+
+<g transform="translate(20, 405)">
+<rect x="0" y="0" width="10" height="10" fill="#378ADD" />
+<text x="16" y="9" class="legend-text">Business Dev</text>
+<rect x="108" y="0" width="10" height="10" fill="#D85A30" />
+<text x="124" y="9" class="legend-text">AI Learning</text>
+<rect x="208" y="0" width="10" height="10" fill="#7F77DD" />
+<text x="224" y="9" class="legend-text">AutoMem</text>
+<rect x="296" y="0" width="10" height="10" fill="#1D9E75" />
+<text x="312" y="9" class="legend-text">Automation Hub</text>
+<rect x="416" y="0" width="10" height="10" fill="#D4537E" />
+<text x="432" y="9" class="legend-text">Toggl MCP</text>
+<rect x="516" y="0" width="10" height="10" fill="#EF9F27" />
+<text x="532" y="9" class="legend-text">MCP Servers</text>
+<rect x="624" y="0" width="10" height="10" fill="#888780" />
+<text x="640" y="9" class="legend-text">WPF Support</text>
+</g>
+</svg>

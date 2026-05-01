@@ -42,6 +42,9 @@ package-lock.json
 
 # Keep these in the published package
 !dist/
+!docs/
+!docs/images/
+!docs/images/*.svg
 !README.md
 !LICENSE
 !package.json

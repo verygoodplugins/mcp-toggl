@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 380" role="img" aria-label="Calendar heatmap of April 2026 plus May 1: 26 active days, 219.6 hours total. Longest day Apr 2 at 18.2 hours. Most consistent stretch Apr 20 to 25 with 6 straight days of 9 to 14 hours.">
+<title>April recap — 219.6 hrs across 26 active days</title>
+<desc>Calendar heatmap showing daily hours tracked across April 2026 and May 1. Color intensity scales from light green (under 4 hours) to dark green (over 16 hours). Empty cells represent days with no entries. Off days: April 7, 11, 14-15, and 26.</desc>
+<style>
+.title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 16px; font-weight: 500; fill: #2C2C2A; }
+.subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 12px; fill: #5F5E5A; }
+.day-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 11px; fill: #5F5E5A; }
+.month-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 10px; fill: #888780; }
+.legend-text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 11px; fill: #5F5E5A; }
+.stat-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 12px; fill: #5F5E5A; }
+.stat-value { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 22px; font-weight: 500; fill: #2C2C2A; }
+.stat-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 11px; fill: #888780; }
+.note-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 12px; fill: #5F5E5A; }
+.note-value { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 13px; font-weight: 500; fill: #2C2C2A; }
+@media (prefers-color-scheme: dark) {
+  .title { fill: #F1EFE8; }
+  .subtitle { fill: #B4B2A9; }
+  .day-label { fill: #B4B2A9; }
+  .month-label { fill: #888780; }
+  .legend-text { fill: #B4B2A9; }
+  .stat-label { fill: #B4B2A9; }
+  .stat-value { fill: #F1EFE8; }
+  .stat-sub { fill: #888780; }
+  .note-label { fill: #B4B2A9; }
+  .note-value { fill: #F1EFE8; }
+}
+</style>
+
+<text x="20" y="28" class="title">April recap — 219.6 hrs across 26 active days</text>
+<text x="20" y="48" class="subtitle">Apr 1 → May 1 · daily hours tracked</text>
+
+<text x="60" y="100" class="day-label" text-anchor="end">Mon</text>
+<text x="60" y="136" class="day-label" text-anchor="end">Tue</text>
+<text x="60" y="172" class="day-label" text-anchor="end">Wed</text>
+<text x="60" y="208" class="day-label" text-anchor="end">Thu</text>
+<text x="60" y="244" class="day-label" text-anchor="end">Fri</text>
+<text x="60" y="280" class="day-label" text-anchor="end">Sat</text>
+<text x="60" y="316" class="day-label" text-anchor="end">Sun</text>
+
+<rect x="70" y="80" width="32" height="32" fill="#F1EFE8" rx="4" opacity="0.4" />
+<rect x="70" y="116" width="32" height="32" fill="#F1EFE8" rx="4" opacity="0.4" />
+<rect x="70" y="152" width="32" height="32" fill="#5DCAA5" rx="4" />
+<rect x="70" y="188" width="32" height="32" fill="#085041" rx="4" />
+<rect x="70" y="224" width="32" height="32" fill="#9FE1CB" rx="4" />
+<rect x="70" y="260" width="32" height="32" fill="#9FE1CB" rx="4" />
+<rect x="70" y="296" width="32" height="32" fill="#9FE1CB" rx="4" />
+
+<rect x="106" y="80" width="32" height="32" fill="#5DCAA5" rx="4" />
+<rect x="106" y="116" width="32" height="32" fill="#E8E5DA" rx="4" />
+<rect x="106" y="152" width="32" height="32" fill="#9FE1CB" rx="4" />
+<rect x="106" y="188" width="32" height="32" fill="#085041" rx="4" />
+<rect x="106" y="224" width="32" height="32" fill="#1D9E75" rx="4" />
+<rect x="106" y="260" width="32" height="32" fill="#E8E5DA" rx="4" />
+<rect x="106" y="296" width="32" height="32" fill="#9FE1CB" rx="4" />
+
+<rect x="142" y="80" width="32" height="32" fill="#1D9E75" rx="4" />
+<rect x="142" y="116" width="32" height="32" fill="#E8E5DA" rx="4" />
+<rect x="142" y="152" width="32" height="32" fill="#E8E5DA" rx="4" />
+<rect x="142" y="188" width="32" height="32" fill="#0F6E56" rx="4" />
+<rect x="142" y="224" width="32" height="32" fill="#5DCAA5" rx="4" />
+<rect x="142" y="260" width="32" height="32" fill="#1D9E75" rx="4" />
+<rect x="142" y="296" width="32" height="32" fill="#1D9E75" rx="4" />
+
+<rect x="178" y="80" width="32" height="32" fill="#1D9E75" rx="4" />
+<rect x="178" y="116" width="32" height="32" fill="#0F6E56" rx="4" />
+<rect x="178" y="152" width="32" height="32" fill="#1D9E75" rx="4" />
+<rect x="178" y="188" width="32" height="32" fill="#0F6E56" rx="4" />
+<rect x="178" y="224" width="32" height="32" fill="#0F6E56" rx="4" />
+<rect x="178" y="260" width="32" height="32" fill="#1D9E75" rx="4" />
+<rect x="178" y="296" width="32" height="32" fill="#E8E5DA" rx="4" />
+
+<rect x="214" y="80" width="32" height="32" fill="#5DCAA5" rx="4" />
+<rect x="214" y="116" width="32" height="32" fill="#0F6E56" rx="4" />
+<rect x="214" y="152" width="32" height="32" fill="#5DCAA5" rx="4" />
+<rect x="214" y="188" width="32" height="32" fill="#5DCAA5" rx="4" />
+<rect x="214" y="224" width="32" height="32" fill="#9FE1CB" rx="4" />
+<rect x="214" y="260" width="32" height="32" fill="#F1EFE8" rx="4" opacity="0.4" />
+<rect x="214" y="296" width="32" height="32" fill="#F1EFE8" rx="4" opacity="0.4" />
+
+<text x="86" y="64" class="month-label" text-anchor="middle">Mar 30</text>
+<text x="194" y="64" class="month-label" text-anchor="middle">Apr 13</text>
+<text x="230" y="64" class="month-label" text-anchor="middle">Apr 27</text>
+
+<g transform="translate(70, 348)">
+<text x="0" y="0" class="legend-text">Less</text>
+<rect x="32" y="-9" width="11" height="11" fill="#E8E5DA" rx="2" />
+<rect x="48" y="-9" width="11" height="11" fill="#9FE1CB" rx="2" />
+<rect x="64" y="-9" width="11" height="11" fill="#5DCAA5" rx="2" />
+<rect x="80" y="-9" width="11" height="11" fill="#1D9E75" rx="2" />
+<rect x="96" y="-9" width="11" height="11" fill="#0F6E56" rx="2" />
+<rect x="112" y="-9" width="11" height="11" fill="#085041" rx="2" />
+<text x="130" y="0" class="legend-text">More</text>
+<text x="170" y="0" class="legend-text" fill="#888780">0h · &lt;4h · 4-8h · 8-12h · 12-16h · 16h+</text>
+</g>
+
+<g transform="translate(310, 80)">
+<text x="0" y="14" class="stat-label">Total tracked</text>
+<text x="0" y="42" class="stat-value">219.6</text>
+<text x="74" y="42" class="stat-sub">hrs</text>
+
+<text x="0" y="84" class="stat-label">Active days</text>
+<text x="0" y="112" class="stat-value">26</text>
+<text x="46" y="112" class="stat-sub">of 31 (84%)</text>
+
+<text x="0" y="154" class="stat-label">Avg active day</text>
+<text x="0" y="182" class="stat-value">8.4</text>
+<text x="58" y="182" class="stat-sub">hrs</text>
+</g>
+
+<g transform="translate(530, 80)">
+<text x="0" y="14" class="note-label">Longest day</text>
+<text x="0" y="34" class="note-value">Apr 2 — 18.2 hrs</text>
+<text x="0" y="52" class="stat-sub">"AI shit" + late call w/ Spence</text>
+
+<text x="0" y="92" class="note-label">Best stretch</text>
+<text x="0" y="112" class="note-value">Apr 20 → 25 · 6 days</text>
+<text x="0" y="130" class="stat-sub">avg 11.9 hrs/day, no breaks</text>
+
+<text x="0" y="170" class="note-label">Days off</text>
+<text x="0" y="190" class="note-value">5 · Apr 7, 11, 14, 15, 26</text>
+<text x="0" y="208" class="stat-sub">2 weekend pairs, mostly steady</text>
+</g>
+</svg>
