@@ -64,4 +64,25 @@ describe('toggl api errors', () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it('sanitizes auth failures into structured errors', async () => {
+    fetchMock.mockResolvedValue(
+      response({
+        status: 401,
+        text: 'bad token abc123',
+      })
+    );
+
+    const api = new TogglAPI('token');
+    await expect(api.getWorkspaces()).rejects.toMatchObject({
+      code: 'AUTHENTICATION_FAILED',
+      status: 401,
+      message:
+        'Authentication failed (401). Verify TOGGL_API_KEY is correct, has no leading/trailing spaces, and is the Toggl Track API token.',
+    });
+
+    await expect(api.getWorkspaces()).rejects.not.toMatchObject({
+      message: expect.stringContaining('abc123'),
+    });
+  });
 });

@@ -113,18 +113,21 @@ export class TogglAPI {
             });
           }
 
-          const isAuth = response.status === 401 || response.status === 403;
-          const message = isAuth
-            ? `Authentication failed (${response.status}). ` +
-              `Verify TOGGL_API_KEY is correct, has no leading/trailing spaces, and is the Toggl Track API token. ` +
-              `Server response: ${text}`
-            : `Toggl API error (${response.status}): ${text}`;
-          const err = new Error(message);
-          // 4xx client errors won't succeed on retry (incl. 401/403); 5xx and network errors do retry.
           if (response.status >= 400 && response.status < 500) {
-            Object.assign(err, { noRetry: true });
+            const isAuth = response.status === 401 || response.status === 403;
+            throw new TogglAPIError({
+              status: response.status,
+              code: isAuth ? 'AUTHENTICATION_FAILED' : 'TOGGL_API_CLIENT_ERROR',
+              message: isAuth
+                ? `Authentication failed (${response.status}). Verify TOGGL_API_KEY is correct, has no leading/trailing spaces, and is the Toggl Track API token.`
+                : `Toggl API rejected the request (${response.status}).`,
+              tip: isAuth
+                ? 'Regenerate or copy your Toggl Track API token from track.toggl.com/profile and restart the MCP server.'
+                : 'Check the tool arguments and Toggl workspace permissions, then retry.',
+            });
           }
-          throw err;
+
+          throw new Error(`Toggl API request failed (${response.status}).`);
         }
 
         // Handle 204 No Content
@@ -404,15 +407,21 @@ export class TogglAPI {
             throw new TimelineNotEnabledError();
           }
 
-          const isAuth = response.status === 401 || response.status === 403;
-          const message = isAuth
-            ? `Timeline authentication failed (${response.status}). Verify TOGGL_API_KEY is correct. Server response: ${text}`
-            : `Timeline API error (${response.status}): ${text}`;
-          const err = new Error(message);
           if (response.status >= 400 && response.status < 500) {
-            Object.assign(err, { noRetry: true });
+            const isAuth = response.status === 401 || response.status === 403;
+            throw new TogglAPIError({
+              status: response.status,
+              code: isAuth ? 'AUTHENTICATION_FAILED' : 'TIMELINE_API_CLIENT_ERROR',
+              message: isAuth
+                ? `Timeline authentication failed (${response.status}). Verify TOGGL_API_KEY is correct.`
+                : `Toggl timeline API rejected the request (${response.status}).`,
+              tip: isAuth
+                ? 'Regenerate or copy your Toggl Track API token from track.toggl.com/profile and restart the MCP server.'
+                : 'Check timeline permissions and request arguments, then retry.',
+            });
           }
-          throw err;
+
+          throw new Error(`Toggl timeline API request failed (${response.status}).`);
         }
 
         const data = JSON.parse(text) as unknown;

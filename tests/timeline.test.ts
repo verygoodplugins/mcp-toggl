@@ -58,9 +58,25 @@ describe('timeline response shaping', () => {
     expect(response.summary).toEqual({ 'Google Chrome': 60, 'Chrome Canary': 60 });
   });
 
-  it('redacts titles while preserving non-sensitive event fields and summary', () => {
+  it('redacts titles by default while preserving non-sensitive event fields and summary', () => {
+    const response = buildTimelineResponse([event(1, 'Mail', 'Inbox - private@example.com')], {});
+
+    expect(response.summary).toEqual({ Mail: 60 });
+    expect(response.events?.[0]).toMatchObject({
+      id: 1,
+      desktop_id: 'desktop-1',
+      filename: 'Mail',
+      title: null,
+      idle: false,
+      duration_seconds: 60,
+    });
+    expect(response.events?.[0]?.start).toBeDefined();
+    expect(response.events?.[0]?.end).toBeDefined();
+  });
+
+  it('supports explicit redacted title mode', () => {
     const response = buildTimelineResponse([event(1, 'Mail', 'Inbox - private@example.com')], {
-      redact_titles: true,
+      title_mode: 'redacted',
     });
 
     expect(response.summary).toEqual({ Mail: 60 });
@@ -74,6 +90,30 @@ describe('timeline response shaping', () => {
     });
     expect(response.events?.[0]?.start).toBeDefined();
     expect(response.events?.[0]?.end).toBeDefined();
+  });
+
+  it('returns raw titles only when explicitly requested', () => {
+    const response = buildTimelineResponse([event(1, 'Browser', 'OAuth callback token=secret')], {
+      title_mode: 'raw',
+    });
+
+    expect(response.events?.[0]?.title).toBe('OAuth callback token=secret');
+  });
+
+  it('keeps redact_titles false as a deprecated raw-title compatibility flag', () => {
+    const response = buildTimelineResponse([event(1, 'Editor', 'private.md')], {
+      redact_titles: false,
+    });
+
+    expect(response.events?.[0]?.title).toBe('private.md');
+  });
+
+  it('rejects invalid title modes before returning events', () => {
+    expect(() =>
+      buildTimelineResponse([event(1, 'Editor', 'private.md')], {
+        title_mode: 'visible',
+      })
+    ).toThrow('title_mode must be "redacted" or "raw"');
   });
 
   it('uses four-decimal total_hours precision for timeline display', () => {

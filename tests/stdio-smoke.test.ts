@@ -73,7 +73,13 @@ describe.skipIf(!existsSync(entryPoint))('stdio smoke checks', () => {
       });
       expect(properties?.redact_titles).toMatchObject({
         type: 'boolean',
-        default: false,
+        default: true,
+        deprecated: true,
+      });
+      expect(properties?.title_mode).toMatchObject({
+        type: 'string',
+        enum: ['redacted', 'raw'],
+        default: 'redacted',
       });
 
       const result = await client.callTool({
