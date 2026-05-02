@@ -210,6 +210,24 @@ describe('toggl api project CRUD', () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it('does not retry ambiguous project write failures', async () => {
+    const api = new TogglAPI('token');
+
+    fetchMock.mockResolvedValue(response({ status: 500, text: 'server error' }));
+    await expect(api.createProject(1, { name: 'New Project' })).rejects.toThrow(/500/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(response({ status: 500, text: 'server error' }));
+    await expect(api.updateProject(1, 50, { name: 'Renamed' })).rejects.toThrow(/500/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(response({ status: 500, text: 'server error' }));
+    await expect(api.deleteProject(1, 50)).rejects.toThrow(/500/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('toggl api time entry CRUD and tasks', () => {

@@ -210,7 +210,7 @@ export class TogglAPI {
   }
 
   async createProject(workspaceId: number, project: CreateProjectRequest): Promise<Project> {
-    return this.request<Project>('POST', `/workspaces/${workspaceId}/projects`, {
+    return this.writeRequest<Project>('POST', `/workspaces/${workspaceId}/projects`, {
       ...project,
       active: project.active ?? true,
       is_private: project.is_private ?? false,
@@ -222,7 +222,7 @@ export class TogglAPI {
     projectId: number,
     updates: UpdateProjectRequest
   ): Promise<Project> {
-    return this.request<Project>(
+    return this.writeRequest<Project>(
       'PUT',
       `/workspaces/${workspaceId}/projects/${projectId}`,
       updates
@@ -235,7 +235,7 @@ export class TogglAPI {
     timeEntryDeletionMode?: ProjectDeleteMode
   ): Promise<void> {
     const query = timeEntryDeletionMode ? `?teDeletionMode=${timeEntryDeletionMode}` : '';
-    await this.request<void>('DELETE', `/workspaces/${workspaceId}/projects/${projectId}${query}`);
+    await this.writeRequest<void>('DELETE', `/workspaces/${workspaceId}/projects/${projectId}${query}`);
   }
 
   // Client methods
