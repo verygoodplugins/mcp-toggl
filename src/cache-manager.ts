@@ -250,6 +250,15 @@ export class CacheManager {
     }
   }
 
+  invalidateWorkspaceClients(workspaceId: number): void {
+    this.clientsByWorkspace.delete(workspaceId);
+    this.clients.forEach((entry, clientId) => {
+      if (entry.data.workspace_id === workspaceId) {
+        this.clients.delete(clientId);
+      }
+    });
+  }
+
   // Task methods
   async getTask(id: number, workspaceId: number, projectId: number): Promise<Task | null> {
     const cached = this.getCached(this.tasks, id);
