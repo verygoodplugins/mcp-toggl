@@ -179,18 +179,29 @@ export class TogglAPI {
   }
 
   // Project methods
-  async getProjects(workspaceId: number): Promise<Project[]> {
-    return this.request<Project[]>('GET', `/workspaces/${workspaceId}/projects`);
+  async getProjects(
+    workspaceId: number,
+    active?: 'true' | 'false' | 'both'
+  ): Promise<Project[]> {
+    const query = active ? `?active=${active}` : '';
+    return this.request<Project[]>('GET', `/workspaces/${workspaceId}/projects${query}`);
   }
 
-  async getProject(projectId: number): Promise<Project> {
-    // First, we need to find which workspace this project belongs to
-    // This is a limitation of Toggl API v9 - no direct project endpoint
+  async getProject(projectId: number, workspaceId?: number): Promise<Project> {
+    if (workspaceId) {
+      return this.request<Project>('GET', `/workspaces/${workspaceId}/projects/${projectId}`);
+    }
+    // Fallback: try the direct endpoint per workspace until one matches.
     const workspaces = await this.getWorkspaces();
     for (const workspace of workspaces) {
-      const projects = await this.getProjects(workspace.id);
-      const project = projects.find((p) => p.id === projectId);
-      if (project) return project;
+      try {
+        return await this.request<Project>(
+          'GET',
+          `/workspaces/${workspace.id}/projects/${projectId}`
+        );
+      } catch {
+        continue;
+      }
     }
     throw new Error(`Project ${projectId} not found`);
   }
