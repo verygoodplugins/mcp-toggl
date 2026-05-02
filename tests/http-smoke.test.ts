@@ -60,6 +60,9 @@ describe.skipIf(!existsSync(entryPoint))('http transport smoke checks', () => {
         TOGGL_API_KEY: 'dummy-token',
         TOGGL_API_TOKEN: '',
         TOGGL_TOKEN: '',
+        MCP_HTTP_AUTH_TOKEN: 'test-http-token',
+        MCP_HTTP_ALLOW_UNAUTHENTICATED: '',
+        MCP_HTTP_CORS_ORIGIN: '',
       },
       stdio: 'pipe',
     });
@@ -67,15 +70,30 @@ describe.skipIf(!existsSync(entryPoint))('http transport smoke checks', () => {
     try {
       await waitForHealth(`${baseUrl}/health`, child);
 
-      const health = (await (await fetch(`${baseUrl}/health`)).json()) as Record<string, unknown>;
+      const healthResponse = await fetch(`${baseUrl}/health`);
+      const health = (await healthResponse.json()) as Record<string, unknown>;
       expect(health).toMatchObject({
         ok: true,
         name: 'mcp-toggl',
         transport: 'http',
       });
+      expect(healthResponse.headers.get('access-control-allow-origin')).toBeNull();
+
+      const unauthorized = await fetch(`${baseUrl}/mcp`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+      });
+      expect(unauthorized.status).toBe(401);
 
       const client = new Client({ name: 'mcp-toggl-http-test', version: '1.0.0' });
-      const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`));
+      const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`), {
+        requestInit: {
+          headers: {
+            authorization: 'Bearer test-http-token',
+          },
+        },
+      });
       await client.connect(transport);
 
       try {

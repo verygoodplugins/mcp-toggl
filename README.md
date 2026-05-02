@@ -187,6 +187,7 @@ Original window titles are opt-in:
 ```
 
 `redact_titles` is still accepted for older clients, but `title_mode` is the preferred API.
+This is an intentional privacy-first behavior change from older releases: clients that need original window titles must pass `title_mode: "raw"` or `redact_titles: false`.
 
 When in doubt, use `include_events: false`.
 
@@ -195,6 +196,7 @@ When in doubt, use `include_events: false`.
 mcp-toggl can run as a local stdio server or as a per-user Streamable HTTP server. For the full platform-agnostic guide, see [VGP MCP self-hosting](https://github.com/verygoodplugins/mcp-ecosystem/blob/main/docs/SELF_HOSTING.md).
 
 Use a server-side Toggl token. Do not put your Toggl API token in the connector URL.
+Remote HTTP deployments also require an MCP bearer token so the public `/mcp` endpoint cannot be used as a proxy for your Toggl account.
 
 ### Docker
 
@@ -202,6 +204,7 @@ Use a server-side Toggl token. Do not put your Toggl API token in the connector 
 docker run --rm \
   -p 3000:3000 \
   -e TOGGL_API_TOKEN=xxx \
+  -e MCP_HTTP_AUTH_TOKEN=change-this-random-secret \
   ghcr.io/verygoodplugins/mcp-toggl:stable
 ```
 
@@ -216,30 +219,35 @@ Claude Desktop custom connector URL:
 https://your-deployment.example.com/mcp
 ```
 
+Configure the connector to send `Authorization: Bearer <MCP_HTTP_AUTH_TOKEN>`.
+
 ### Railway
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/mcp-toggl?referralCode=VuFE6g&utm_medium=integration&utm_source=github&utm_campaign=generic)
 
-Set `TOGGL_API_TOKEN` in Railway variables. Leave `TRANSPORT=http`; Railway will provide `PORT`.
+Set `TOGGL_API_TOKEN` and `MCP_HTTP_AUTH_TOKEN` in Railway variables. Leave `TRANSPORT=http`; Railway will provide `PORT`.
 
 ### Other Hosts
 
-Fly, Render, Coolify, and a bare VPS all use the same image and env vars. The only required deployment secret is `TOGGL_API_TOKEN`; `TOGGL_DEFAULT_WORKSPACE_ID` is optional for accounts with multiple workspaces.
+Fly, Render, Coolify, and a bare VPS all use the same image and env vars. Required deployment secrets are `TOGGL_API_TOKEN` and `MCP_HTTP_AUTH_TOKEN`; `TOGGL_DEFAULT_WORKSPACE_ID` is optional for accounts with multiple workspaces.
 
 ## Configuration Reference
 
-| Env var                      | Required | Default   | Notes                                                                                   |
-| ---------------------------- | -------- | --------- | --------------------------------------------------------------------------------------- |
-| `TOGGL_API_KEY`              | Yes      | -         | Toggl API token for local stdio installs. Either this or `TOGGL_API_TOKEN` is required. |
-| `TOGGL_API_TOKEN`            | Yes      | -         | Toggl API token for Docker/PaaS installs. Either this or `TOGGL_API_KEY` is required.   |
-| `TOGGL_TOKEN`                | No       | -         | Legacy alias. Prefer `TOGGL_API_KEY` or `TOGGL_API_TOKEN`.                              |
-| `TOGGL_DEFAULT_WORKSPACE_ID` | No       | -         | Used when a tool requires a workspace and none is passed.                               |
-| `TOGGL_CACHE_TTL`            | No       | `3600000` | Cache TTL in milliseconds. Default is 1 hour.                                           |
-| `TOGGL_CACHE_SIZE`           | No       | `1000`    | Maximum cached entity budget.                                                           |
-| `TOGGL_BATCH_SIZE`           | No       | `100`     | Batch size used by API pagination helpers.                                              |
-| `TRANSPORT`                  | No       | `stdio`   | Use `http` for Streamable HTTP self-hosting.                                            |
-| `PORT`                       | No       | `3000`    | HTTP port when `TRANSPORT=http`.                                                        |
-| `HOST`                       | No       | `0.0.0.0` | HTTP bind host when `TRANSPORT=http`.                                                   |
+| Env var                            | Required         | Default   | Notes                                                                                   |
+| ---------------------------------- | ---------------- | --------- | --------------------------------------------------------------------------------------- |
+| `TOGGL_API_KEY`                    | One token env    | -         | Toggl API token for local stdio installs.                                               |
+| `TOGGL_API_TOKEN`                  | One token env    | -         | Toggl API token for Docker/PaaS installs.                                               |
+| `TOGGL_TOKEN`                      | No               | -         | Legacy alias. Prefer `TOGGL_API_KEY` or `TOGGL_API_TOKEN`.                              |
+| `TOGGL_DEFAULT_WORKSPACE_ID`       | No               | -         | Used when a tool requires a workspace and none is passed.                               |
+| `TOGGL_CACHE_TTL`                  | No               | `3600000` | Cache TTL in milliseconds. Default is 1 hour.                                           |
+| `TOGGL_CACHE_SIZE`                 | No               | `1000`    | Maximum cached entity budget.                                                           |
+| `TOGGL_BATCH_SIZE`                 | No               | `100`     | Batch size used by API pagination helpers.                                              |
+| `TRANSPORT`                        | No               | `stdio`   | Use `http` for Streamable HTTP self-hosting.                                            |
+| `MCP_HTTP_AUTH_TOKEN`              | HTTP deployments | -         | Bearer token required for `/mcp` unless loopback unauthenticated mode is explicitly set. |
+| `MCP_HTTP_CORS_ORIGIN`             | No               | -         | Optional browser CORS origin. No CORS response headers are sent by default.             |
+| `MCP_HTTP_ALLOW_UNAUTHENTICATED`   | No               | `false`   | Set to `true` only for loopback-only HTTP development without auth.                     |
+| `PORT`                             | No               | `3000`    | HTTP port when `TRANSPORT=http`.                                                        |
+| `HOST`                             | No               | `0.0.0.0` | HTTP bind host when `TRANSPORT=http`.                                                   |
 
 ## Caveats
 

@@ -129,6 +129,7 @@ if (argv.includes('--help') || argv.includes('-h')) {
       `  TOGGL_CACHE_TTL              Cache TTL in ms (default: 3600000)\n` +
       `  TOGGL_CACHE_SIZE             Max cached entities (default: 1000)\n\n` +
       `  TRANSPORT                    stdio or http (default: stdio)\n` +
+      `  MCP_HTTP_AUTH_TOKEN          Required bearer token when TRANSPORT=http\n` +
       `  PORT                         HTTP port when TRANSPORT=http (default: 3000)\n\n` +
       `Claude Desktop (claude_desktop_config.json):\n` +
       `  {\n` +
@@ -1195,24 +1196,66 @@ export function createTogglServer(): Server {
   return server;
 }
 
+function corsHeaders(): Record<string, string> {
+  const origin = (process.env.MCP_HTTP_CORS_ORIGIN || '').trim();
+  if (!origin) return {};
+
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Headers':
+      'Authorization, Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  };
+}
+
 function writeJson(res: ServerResponse, statusCode: number, body: Record<string, unknown>): void {
   res.writeHead(statusCode, {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    ...corsHeaders(),
     'Content-Type': 'application/json',
   });
   res.end(JSON.stringify(body));
 }
 
-async function handleMcpHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+function getHeader(req: IncomingMessage, name: string): string | undefined {
+  const value = req.headers[name.toLowerCase()];
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+function isAuthorizedHttpRequest(req: IncomingMessage, authToken: string | undefined): boolean {
+  if (!authToken) return true;
+  return getHeader(req, 'authorization') === `Bearer ${authToken}`;
+}
+
+async function closeServerAndTransport(
+  server: Server,
+  transport: StreamableHTTPServerTransport
+): Promise<void> {
+  await Promise.allSettled([transport.close(), server.close()]);
+}
+
+async function handleMcpHttpRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  authToken: string | undefined
+): Promise<void> {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      ...corsHeaders(),
     });
     res.end();
+    return;
+  }
+
+  if (!isAuthorizedHttpRequest(req, authToken)) {
+    writeJson(res, 401, {
+      jsonrpc: '2.0',
+      error: {
+        code: -32001,
+        message: 'Unauthorized.',
+      },
+      id: null,
+    });
     return;
   }
 
@@ -1232,18 +1275,21 @@ async function handleMcpHttpRequest(req: IncomingMessage, res: ServerResponse): 
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
   });
+  let resourcesClosed = false;
+  const closeResources = async () => {
+    if (resourcesClosed) return;
+    resourcesClosed = true;
+    await closeServerAndTransport(server, transport);
+  };
 
   try {
+    res.once('close', () => {
+      void closeResources();
+    });
     await server.connect(transport);
     await transport.handleRequest(req, res);
-    res.on('close', () => {
-      void transport.close();
-      void server.close();
-    });
   } catch (error) {
     console.error('HTTP MCP request failed:', error);
-    await transport.close();
-    await server.close();
     if (!res.headersSent) {
       writeJson(res, 500, {
         jsonrpc: '2.0',
@@ -1254,20 +1300,47 @@ async function handleMcpHttpRequest(req: IncomingMessage, res: ServerResponse): 
         id: null,
       });
     }
+  } finally {
+    if (res.writableEnded || res.destroyed) {
+      await closeResources();
+    }
   }
 }
 
 function parsePort(value: string | undefined): number {
-  const port = Number.parseInt(value || '3000', 10);
+  const rawValue = (value || '3000').trim();
+  if (!/^\d+$/.test(rawValue)) {
+    throw new Error('PORT must be an integer between 1 and 65535');
+  }
+
+  const port = Number.parseInt(rawValue, 10);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
     throw new Error('PORT must be an integer between 1 and 65535');
   }
   return port;
 }
 
+function isLoopbackHost(host: string): boolean {
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+}
+
+function getHttpAuthToken(host: string): string | undefined {
+  const token = (process.env.MCP_HTTP_AUTH_TOKEN || '').trim();
+  if (token) return token;
+
+  if (process.env.MCP_HTTP_ALLOW_UNAUTHENTICATED === 'true' && isLoopbackHost(host)) {
+    return undefined;
+  }
+
+  throw new Error(
+    'MCP_HTTP_AUTH_TOKEN is required when TRANSPORT=http. Set MCP_HTTP_ALLOW_UNAUTHENTICATED=true only for loopback-only development.'
+  );
+}
+
 async function startHttpServer(): Promise<void> {
   const port = parsePort(process.env.PORT);
   const host = process.env.HOST || '0.0.0.0';
+  const authToken = getHttpAuthToken(host);
 
   const httpServer = createHttpServer((req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
@@ -1283,7 +1356,7 @@ async function startHttpServer(): Promise<void> {
     }
 
     if (url.pathname === '/mcp') {
-      void handleMcpHttpRequest(req, res);
+      void handleMcpHttpRequest(req, res, authToken);
       return;
     }
 
