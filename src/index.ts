@@ -29,7 +29,14 @@ import {
   parseLocalYMD,
   localDateRangeFromArgs,
 } from './utils.js';
-import type { CacheConfig, TimelineEvent, TimeEntry, UpdateTimeEntryRequest } from './types.js';
+import type {
+  CacheConfig,
+  CreateClientRequest,
+  TimelineEvent,
+  TimeEntry,
+  UpdateClientRequest,
+  UpdateTimeEntryRequest,
+} from './types.js';
 
 function parseInclusiveEndDate(value: string): Date {
   const date = parseLocalYMD(value);
@@ -68,6 +75,8 @@ function isUserInputError(error: unknown): error is Error {
     'entry_id is required',
     'No fields to update',
     'project_id is required',
+    'client_id is required',
+    'Client name is required',
   ].some((prefix) => error.message.startsWith(prefix));
 }
 
@@ -744,6 +753,79 @@ const tools: Tool[] = [
             'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
         },
       },
+    },
+  },
+  {
+    name: 'toggl_create_client',
+    description: 'Create a new client in a workspace',
+    annotations: {
+      readOnlyHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Client name' },
+        notes: { type: 'string', description: 'Optional notes for the client' },
+        external_reference: {
+          type: 'string',
+          description: 'Optional external system reference (e.g. JIRA/Salesforce ID)',
+        },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
+        },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'toggl_update_client',
+    description:
+      'Update an existing client. Toggl requires name on every update; pass the existing name unchanged when only adjusting notes or external_reference.',
+    annotations: {
+      readOnlyHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        client_id: { type: 'number', description: 'Client ID to update' },
+        name: { type: 'string', description: 'Client name (required by Toggl on update)' },
+        notes: { type: 'string' },
+        external_reference: { type: 'string' },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
+        },
+      },
+      required: ['client_id', 'name'],
+    },
+  },
+  {
+    name: 'toggl_delete_client',
+    description: 'Delete a client by ID',
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        client_id: { type: 'number', description: 'Client ID to delete' },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
+        },
+      },
+      required: ['client_id'],
     },
   },
   {
@@ -1445,6 +1527,74 @@ export function createTogglServer(): Server {
               },
             ],
           };
+        }
+
+        case 'toggl_create_client': {
+          const workspaceId = await resolveWorkspaceForTool(args, 'creating a client');
+          const clientRequest: CreateClientRequest = {
+            name: requiredNonEmptyStringArg(args, 'name', 'Client name is required').trim(),
+          };
+
+          const notes = optionalStringArg(args, 'notes');
+          if (notes !== undefined) clientRequest.notes = notes;
+
+          const externalReference = optionalStringArg(args, 'external_reference');
+          if (externalReference !== undefined) {
+            clientRequest.external_reference = externalReference;
+          }
+
+          const created = await api.createClient(workspaceId, clientRequest);
+          cache.invalidateWorkspaceClients(workspaceId);
+
+          return jsonResponse({
+            success: true,
+            message: 'Client created',
+            client: created,
+          });
+        }
+
+        case 'toggl_update_client': {
+          const workspaceId = await resolveWorkspaceForTool(args, 'updating a client');
+          const clientId = requiredFiniteNumberArg(args, 'client_id', 'client_id is required');
+          const updates: UpdateClientRequest = {
+            name: requiredNonEmptyStringArg(
+              args,
+              'name',
+              'Client name is required (Toggl requires name on every update)'
+            ).trim(),
+          };
+
+          const notes = optionalStringArg(args, 'notes');
+          if (notes !== undefined) updates.notes = notes;
+
+          const externalReference = optionalStringArg(args, 'external_reference');
+          if (externalReference !== undefined) {
+            updates.external_reference = externalReference;
+          }
+
+          const updated = await api.updateClient(workspaceId, clientId, updates);
+          cache.invalidateWorkspaceClients(workspaceId);
+
+          return jsonResponse({
+            success: true,
+            message: 'Client updated',
+            client: updated,
+          });
+        }
+
+        case 'toggl_delete_client': {
+          const workspaceId = await resolveWorkspaceForTool(args, 'deleting a client');
+          const clientId = requiredFiniteNumberArg(args, 'client_id', 'client_id is required');
+
+          await api.deleteClient(workspaceId, clientId);
+          cache.invalidateWorkspaceClients(workspaceId);
+
+          return jsonResponse({
+            success: true,
+            message: 'Client deleted',
+            workspace_id: workspaceId,
+            client_id: clientId,
+          });
         }
 
         case 'toggl_list_tasks': {
