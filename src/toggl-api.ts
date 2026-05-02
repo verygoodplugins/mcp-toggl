@@ -11,6 +11,9 @@ import type {
   TimeEntriesRequest,
   CreateTimeEntryRequest,
   UpdateTimeEntryRequest,
+  CreateProjectRequest,
+  UpdateProjectRequest,
+  ProjectDeleteMode,
   TimelineEvent,
 } from './types.js';
 
@@ -204,6 +207,35 @@ export class TogglAPI {
       }
     }
     throw new Error(`Project ${projectId} not found`);
+  }
+
+  async createProject(workspaceId: number, project: CreateProjectRequest): Promise<Project> {
+    return this.request<Project>('POST', `/workspaces/${workspaceId}/projects`, {
+      ...project,
+      active: project.active ?? true,
+      is_private: project.is_private ?? false,
+    });
+  }
+
+  async updateProject(
+    workspaceId: number,
+    projectId: number,
+    updates: UpdateProjectRequest
+  ): Promise<Project> {
+    return this.request<Project>(
+      'PUT',
+      `/workspaces/${workspaceId}/projects/${projectId}`,
+      updates
+    );
+  }
+
+  async deleteProject(
+    workspaceId: number,
+    projectId: number,
+    timeEntryDeletionMode?: ProjectDeleteMode
+  ): Promise<void> {
+    const query = timeEntryDeletionMode ? `?teDeletionMode=${timeEntryDeletionMode}` : '';
+    await this.request<void>('DELETE', `/workspaces/${workspaceId}/projects/${projectId}${query}`);
   }
 
   // Client methods
