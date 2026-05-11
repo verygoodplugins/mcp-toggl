@@ -97,6 +97,18 @@ export interface User {
   updated_at?: string;
 }
 
+export interface WorkspaceUser {
+  id: number;
+  uid: number;
+  workspace_id: number;
+  email?: string;
+  name?: string;
+  fullname?: string;
+  active?: boolean;
+  admin?: boolean;
+  at?: string;
+}
+
 export interface Tag {
   id: number;
   workspace_id: number;

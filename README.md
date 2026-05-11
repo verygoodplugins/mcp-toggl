@@ -70,6 +70,8 @@ Chart prompts depend on your MCP client. The server returns the structured data;
 
 **Recoverable errors**: workspace resolution errors include `available_workspaces`, and Toggl quota/rate-limit errors include structured retry hints.
 
+**Team reporting**: report tools support a `uid` + `workspace_id` pair to pull any workspace member's entries via the Reports API v3.
+
 ## Quick Start
 
 ### Prerequisites
@@ -118,8 +120,8 @@ mcp-toggl --help
 
 | Tool | What it does |
 | --- | --- |
-| `toggl_daily_report` | Hours by project and workspace for a date. Use `format: "text"` for display text or `"json"` for structured output. |
-| `toggl_weekly_report` | 7-day breakdown with daily totals and project rollups. Use `week_offset: -1` for last week. |
+| `toggl_daily_report` | Hours by project and workspace for a date. Use `format: "text"` for display text or `"json"` for structured output. Supports `uid` filtering. |
+| `toggl_weekly_report` | 7-day breakdown with daily totals and project rollups. Use `week_offset: -1` for last week. Supports `uid` filtering. |
 | `toggl_get_time_entries` | Raw hydrated entries by period, date range, workspace, or project. |
 | `toggl_get_timeline` | Toggl Track Desktop app usage summary with optional raw events. |
 
@@ -139,6 +141,7 @@ mcp-toggl --help
 | `toggl_list_workspaces` | Lists all accessible workspaces. |
 | `toggl_list_projects` | Lists projects for a workspace using cache-backed reads after first fetch. |
 | `toggl_list_clients` | Lists clients for a workspace using cache-backed reads after first fetch. |
+| `toggl_list_workspace_users` | Lists all members of a workspace with their `uid` values. Use these to filter reports by a specific team member. |
 
 ### Cache Management
 
@@ -152,8 +155,8 @@ mcp-toggl --help
 
 | Tool | What it does |
 | --- | --- |
-| `toggl_project_summary` | Total hours per project for a period or date range. |
-| `toggl_workspace_summary` | Total hours per workspace for a period or date range. |
+| `toggl_project_summary` | Total hours per project for a period or date range. Supports `uid` filtering. |
+| `toggl_workspace_summary` | Total hours per workspace for a period or date range. Supports `uid` filtering. |
 
 ## Timeline Privacy
 

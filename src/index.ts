@@ -13,6 +13,7 @@ import { CacheManager } from './cache-manager.js';
 import { WorkspaceResolutionError, parseWorkspaceId, resolveWorkspaceId } from './workspace.js';
 import {
   getDateRange,
+  isDatePeriod,
   generateDailyReport,
   generateWeeklyReport,
   formatReportForDisplay,
@@ -170,6 +171,17 @@ async function ensureCache(): Promise<void> {
       console.error('Failed to warm cache:', error);
     }
   }
+}
+
+function resolveDateRange(args: Record<string, unknown> | undefined): { start: Date; end: Date } {
+  if (args?.period && isDatePeriod(args.period)) return getDateRange(args.period);
+  if (args?.start_date && args?.end_date) {
+    return {
+      start: parseLocalYMD(args.start_date as string),
+      end: parseInclusiveEndDate(args.end_date as string),
+    };
+  }
+  return getDateRange('week');
 }
 
 async function resolveWorkspaceForTool(
@@ -337,6 +349,14 @@ const tools: Tool[] = [
           enum: ['json', 'text'],
           description: 'Output format (default: json)',
         },
+        uid: {
+          type: 'number',
+          description: 'Toggl uid to report on. When provided, uses the Reports API to fetch that workspace member\'s entries. Requires workspace_id.',
+        },
+        workspace_id: {
+          type: 'number',
+          description: 'Workspace ID. Required when uid is provided.',
+        },
       },
     },
   },
@@ -359,6 +379,15 @@ const tools: Tool[] = [
           type: 'string',
           enum: ['json', 'text'],
           description: 'Output format (default: json)',
+        },
+        uid: {
+          type: 'number',
+          description:
+            'Toggl uid to report on. When provided, uses the Reports API to fetch that workspace member\'s entries instead of the authenticated user\'s. Requires workspace_id.',
+        },
+        workspace_id: {
+          type: 'number',
+          description: 'Workspace ID. Required when uid is provided.',
         },
       },
     },
@@ -389,7 +418,11 @@ const tools: Tool[] = [
         },
         workspace_id: {
           type: 'number',
-          description: 'Filter by workspace ID',
+          description: 'Filter by workspace ID. Required when uid is provided.',
+        },
+        uid: {
+          type: 'number',
+          description: 'Toggl uid to report on. When provided, uses the Reports API to fetch that workspace member\'s entries. Requires workspace_id.',
         },
       },
     },
@@ -417,6 +450,14 @@ const tools: Tool[] = [
         end_date: {
           type: 'string',
           description: 'End date (YYYY-MM-DD format, inclusive, local timezone)',
+        },
+        workspace_id: {
+          type: 'number',
+          description: 'Workspace ID. Required when user_id is provided.',
+        },
+        uid: {
+          type: 'number',
+          description: 'Toggl uid to report on. When provided, uses the Reports API to fetch that workspace member\'s entries. Requires workspace_id.',
         },
       },
     },
@@ -471,6 +512,25 @@ const tools: Tool[] = [
           type: 'number',
           description:
             'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
+        },
+      },
+    },
+  },
+  {
+    name: 'toggl_list_workspace_users',
+    description: 'List all members of a workspace with their uid values. Use this to find uid values for filtering toggl_weekly_report, toggl_project_summary, and toggl_workspace_summary by a specific team member.',
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace.',
         },
       },
     },
@@ -789,7 +849,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const nextDay = new Date(date);
         nextDay.setDate(nextDay.getDate() + 1);
 
-        const entries = await api.getTimeEntriesForDateRange(date, nextDay);
+        let entries;
+        if (args?.uid) {
+          const workspaceId = await resolveWorkspaceForTool(args, 'toggl_daily_report');
+          entries = await api.getTimeEntriesForUserAndDateRange(workspaceId, args.uid as number, date, nextDay);
+        } else {
+          entries = await api.getTimeEntriesForDateRange(date, nextDay);
+        }
         const hydrated = await cache.hydrateTimeEntries(entries);
 
         const report = generateDailyReport(toLocalYMD(date), hydrated);
@@ -819,10 +885,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         await ensureCache();
 
         const weekOffset = (args?.week_offset as number) || 0;
-        const entries = await api.getTimeEntriesForWeek(weekOffset);
-        const hydrated = await cache.hydrateTimeEntries(entries);
 
-        // Calculate week boundaries in local time.
+        // Calculate week boundaries in local time (needed for both paths).
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const dayOfWeek = today.getDay();
@@ -831,7 +895,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         monday.setDate(diff + weekOffset * 7);
         const sunday = new Date(monday);
         sunday.setDate(sunday.getDate() + 6);
+        const nextMonday = new Date(monday);
+        nextMonday.setDate(nextMonday.getDate() + 7);
 
+        let entries: TimeEntry[];
+        if (args?.uid) {
+          const workspaceId = await resolveWorkspaceForTool(args, 'toggl_weekly_report');
+          entries = await api.getTimeEntriesForUserAndDateRange(workspaceId, args.uid as number, monday, nextMonday);
+        } else {
+          entries = await api.getTimeEntriesForWeek(weekOffset);
+        }
+
+        const hydrated = await cache.hydrateTimeEntries(entries);
         const report = generateWeeklyReport(monday, sunday, hydrated);
 
         if (args?.format === 'text') {
@@ -858,22 +933,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'toggl_project_summary': {
         await ensureCache();
 
+        const range = resolveDateRange(args);
         let entries: TimeEntry[];
 
-        if (args?.period) {
-          const range = getDateRange(args.period as any);
-          entries = await api.getTimeEntriesForDateRange(range.start, range.end);
-        } else if (args?.start_date && args?.end_date) {
-          const start = parseLocalYMD(args.start_date as string);
-          const end = parseInclusiveEndDate(args.end_date as string);
-          entries = await api.getTimeEntriesForDateRange(start, end);
+        if (args?.uid) {
+          const workspaceId = await resolveWorkspaceForTool(args, 'toggl_project_summary');
+          entries = await api.getTimeEntriesForUserAndDateRange(workspaceId, args.uid as number, range.start, range.end);
         } else {
-          // Default to current week
-          entries = await api.getTimeEntriesForWeek(0);
-        }
-
-        if (args?.workspace_id) {
-          entries = entries.filter((e) => e.workspace_id === args.workspace_id);
+          entries = await api.getTimeEntriesForDateRange(range.start, range.end);
+          if (args?.workspace_id) {
+            entries = entries.filter((e) => e.workspace_id === args.workspace_id);
+          }
         }
 
         const hydrated = await cache.hydrateTimeEntries(entries);
@@ -908,18 +978,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'toggl_workspace_summary': {
         await ensureCache();
 
+        const range = resolveDateRange(args);
         let entries: TimeEntry[];
 
-        if (args?.period) {
-          const range = getDateRange(args.period as any);
-          entries = await api.getTimeEntriesForDateRange(range.start, range.end);
-        } else if (args?.start_date && args?.end_date) {
-          const start = parseLocalYMD(args.start_date as string);
-          const end = parseInclusiveEndDate(args.end_date as string);
-          entries = await api.getTimeEntriesForDateRange(start, end);
+        if (args?.uid) {
+          const workspaceId = await resolveWorkspaceForTool(args, 'toggl_workspace_summary');
+          entries = await api.getTimeEntriesForUserAndDateRange(workspaceId, args.uid as number, range.start, range.end);
         } else {
-          // Default to current week
-          entries = await api.getTimeEntriesForWeek(0);
+          entries = await api.getTimeEntriesForDateRange(range.start, range.end);
         }
 
         const hydrated = await cache.hydrateTimeEntries(entries);
@@ -1025,6 +1091,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     id: c.id,
                     name: c.name,
                     archived: c.archived,
+                  })),
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case 'toggl_list_workspace_users': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'listing workspace users');
+        const users = await api.getWorkspaceUsers(workspaceId);
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  workspace_id: workspaceId,
+                  count: users.length,
+                  users: users.map((u) => ({
+                    uid: u.uid,
+                    name: u.name ?? u.fullname,
+                    email: u.email,
+                    active: u.active,
+                    admin: u.admin,
                   })),
                 },
                 null,
