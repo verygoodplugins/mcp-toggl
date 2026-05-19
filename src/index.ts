@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
+import express from 'express';
 import { config } from 'dotenv';
 import { TogglAPI, TimelineNotEnabledError, TogglAPIError } from './toggl-api.js';
 import { buildTimelineResponse } from './timeline.js';
@@ -1138,11 +1140,82 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// Start the server
-async function main() {
+// Pick transport based on --http flag.
+//   --http               → all interfaces, port 8099
+//   --http :8099         → all interfaces, explicit port
+//   --http 0.0.0.0:8099  → explicit host and port
+function parseHttpArg(args: string[]): { host: string; port: number } | null {
+  const idx = args.findIndex((a) => a === '--http' || a.startsWith('--http='));
+  if (idx === -1) return null;
+  let raw: string | undefined;
+  if (args[idx].startsWith('--http=')) {
+    raw = args[idx].slice('--http='.length);
+  } else if (idx + 1 < args.length && !args[idx + 1].startsWith('--')) {
+    raw = args[idx + 1];
+  }
+  if (!raw) return { host: '0.0.0.0', port: 8099 };
+  if (raw.includes(':')) {
+    const [h, p] = raw.split(':');
+    return { host: h || '0.0.0.0', port: parseInt(p, 10) || 8099 };
+  }
+  return { host: '0.0.0.0', port: parseInt(raw, 10) || 8099 };
+}
+
+async function runStdio() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('Toggl MCP server running');
+  console.error('Toggl MCP server running (stdio)');
+}
+
+async function runHttp(host: string, port: number) {
+  // Stateless: each request creates a fresh transport. Toggl tool calls all
+  // go to the upstream Toggl API, so there is no session state to keep, and
+  // a per-request transport keeps the server self-contained behind a proxy.
+  const app = express();
+  app.use(express.json({ limit: '4mb' }));
+
+  const handle = async (req: express.Request, res: express.Response) => {
+    try {
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+      });
+      res.on('close', () => {
+        transport.close();
+      });
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (err) {
+      console.error('HTTP handler error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          error: { code: -32603, message: 'Internal server error' },
+          id: null,
+        });
+      }
+    }
+  };
+
+  app.get('/mcp', handle);
+  app.post('/mcp', handle);
+  app.delete('/mcp', handle);
+
+  app.get('/healthz', (_req: express.Request, res: express.Response) => {
+    res.status(200).type('text/plain').send('ok');
+  });
+
+  app.listen(port, host, () => {
+    console.error(`Toggl MCP server running (http) on ${host}:${port}/mcp`);
+  });
+}
+
+async function main() {
+  const http = parseHttpArg(argv);
+  if (http) {
+    await runHttp(http.host, http.port);
+  } else {
+    await runStdio();
+  }
 }
 
 main().catch((error) => {
