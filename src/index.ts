@@ -186,18 +186,24 @@ async function resolveWorkspaceForTool(
   });
 }
 
-// Create MCP server
-const server = new Server(
-  {
-    name: 'mcp-toggl',
-    version: VERSION,
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
-);
+// Build a fresh Server with all request handlers registered. The MCP SDK's
+// Protocol.connect() throws if called twice on the same instance while a
+// transport is still attached, so HTTP mode creates one Server per request
+// rather than sharing this instance across concurrent connections.
+function createServer(): Server {
+  const s = new Server(
+    { name: 'mcp-toggl', version: VERSION },
+    { capabilities: { tools: {} } }
+  );
+
+  s.setRequestHandler(ListToolsRequestSchema, async () => {
+    return { tools };
+  });
+
+  s.setRequestHandler(CallToolRequestSchema, callToolHandler);
+
+  return s;
+}
 
 // Define tool schemas
 const tools: Tool[] = [
@@ -579,13 +585,9 @@ const tools: Tool[] = [
   },
 ];
 
-// Handle tool listing
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return { tools };
-});
-
-// Handle tool calls
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+// Handle tool calls. Defined at module scope so a fresh Server instance
+// can be wired up per request in HTTP mode without rebuilding closures.
+const callToolHandler = async (request: { params: { name: string; arguments?: Record<string, unknown> } }) => {
   const { name, arguments: args } = request.params;
 
   try {
@@ -1138,7 +1140,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   } catch (error: unknown) {
     return jsonResponse(errorPayload(error));
   }
-});
+};
 
 // Pick transport based on --http flag.
 //   --http               → all interfaces, port 8099
@@ -1153,36 +1155,84 @@ function parseHttpArg(args: string[]): { host: string; port: number } | null {
   } else if (idx + 1 < args.length && !args[idx + 1].startsWith('--')) {
     raw = args[idx + 1];
   }
-  if (!raw) return { host: '0.0.0.0', port: 8099 };
-  if (raw.includes(':')) {
-    const [h, p] = raw.split(':');
-    return { host: h || '0.0.0.0', port: parseInt(p, 10) || 8099 };
+  if (!raw) return { host: DEFAULT_HTTP_HOST, port: DEFAULT_HTTP_PORT };
+  return parseHostPort(raw);
+}
+
+const DEFAULT_HTTP_HOST = '127.0.0.1';
+const DEFAULT_HTTP_PORT = 8099;
+
+function parseHostPort(raw: string): { host: string; port: number } {
+  // Bracketed IPv6: [::1]:8099
+  const bracketed = raw.match(/^\[([^\]]+)\](?::(\d+))?$/);
+  if (bracketed) {
+    return { host: bracketed[1], port: parseIntOrDefault(bracketed[2], DEFAULT_HTTP_PORT) };
   }
-  return { host: '0.0.0.0', port: parseInt(raw, 10) || 8099 };
+  // No colon → port-only
+  if (!raw.includes(':')) {
+    return { host: DEFAULT_HTTP_HOST, port: parseIntOrDefault(raw, DEFAULT_HTTP_PORT) };
+  }
+  // Single colon → host:port
+  const lastColon = raw.lastIndexOf(':');
+  if (raw.indexOf(':') === lastColon) {
+    return {
+      host: raw.slice(0, lastColon) || DEFAULT_HTTP_HOST,
+      port: parseIntOrDefault(raw.slice(lastColon + 1), DEFAULT_HTTP_PORT),
+    };
+  }
+  // Multiple colons unbracketed → ambiguous, treat as bare IPv6 host
+  return { host: raw, port: DEFAULT_HTTP_PORT };
+}
+
+function parseIntOrDefault(s: string | undefined, fallback: number): number {
+  if (s === undefined || s === '') return fallback;
+  const n = Number.parseInt(s, 10);
+  return Number.isNaN(n) ? fallback : n;
 }
 
 async function runStdio() {
+  const s = createServer();
   const transport = new StdioServerTransport();
-  await server.connect(transport);
+  await s.connect(transport);
   console.error('Toggl MCP server running (stdio)');
 }
 
 async function runHttp(host: string, port: number) {
-  // Stateless: each request creates a fresh transport. Toggl tool calls all
-  // go to the upstream Toggl API, so there is no session state to keep, and
-  // a per-request transport keeps the server self-contained behind a proxy.
+  // Stateless: each request gets its own Server + transport. Protocol.connect
+  // throws on a second connect against the same Server while another
+  // transport is still attached, so sharing the instance would race under
+  // concurrent requests.
   const app = express();
   app.use(express.json({ limit: '4mb' }));
 
+  // Convert express.json() body-parse failures into JSON-RPC parse errors so
+  // MCP clients see a structured response instead of the default Express
+  // HTML page.
+  app.use(
+    (err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+      if (err instanceof SyntaxError && 'body' in (err as object) && !res.headersSent) {
+        res.status(400).json({
+          jsonrpc: '2.0',
+          error: { code: -32700, message: 'Parse error' },
+          id: null,
+        });
+        return;
+      }
+      next(err);
+    }
+  );
+
   const handle = async (req: express.Request, res: express.Response) => {
+    const s = createServer();
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+    });
+    res.on('close', () => {
+      transport.close();
+      s.close().catch(() => {});
+    });
     try {
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
-      });
-      res.on('close', () => {
-        transport.close();
-      });
-      await server.connect(transport);
+      await s.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {
       console.error('HTTP handler error:', err);
