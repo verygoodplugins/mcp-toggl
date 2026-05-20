@@ -156,10 +156,14 @@ cache.setAPI(api);
 
 // Track if cache has been warmed
 let cacheWarmed = false;
+// In-flight warm-up so concurrent first requests share one sweep against
+// the Toggl API instead of each firing a duplicate.
+let warmPromise: Promise<void> | null = null;
 
-// Helper to ensure cache is warm
 async function ensureCache(): Promise<void> {
-  if (!cacheWarmed) {
+  if (cacheWarmed) return;
+  if (warmPromise) return warmPromise;
+  warmPromise = (async () => {
     try {
       const workspaces = await cache.getWorkspaces();
       const singleWorkspaceId = workspaces.length === 1 ? workspaces[0]!.id : undefined;
@@ -170,8 +174,11 @@ async function ensureCache(): Promise<void> {
       cacheWarmed = true;
     } catch (error) {
       console.error('Failed to warm cache:', error);
+    } finally {
+      warmPromise = null;
     }
-  }
+  })();
+  return warmPromise;
 }
 
 async function resolveWorkspaceForTool(
