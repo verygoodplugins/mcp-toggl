@@ -1197,25 +1197,21 @@ async function runStdio() {
   console.error('Toggl MCP server running (stdio)');
 }
 
+function jsonRpcError(code: number, message: string) {
+  return { jsonrpc: '2.0', error: { code, message }, id: null };
+}
+
 async function runHttp(host: string, port: number) {
-  // Stateless: each request gets its own Server + transport. Protocol.connect
-  // throws on a second connect against the same Server while another
-  // transport is still attached, so sharing the instance would race under
-  // concurrent requests.
+  // See createServer() for why each request gets its own Server instance.
   const app = express();
   app.use(express.json({ limit: '4mb' }));
 
-  // Convert express.json() body-parse failures into JSON-RPC parse errors so
-  // MCP clients see a structured response instead of the default Express
-  // HTML page.
+  // Translate body-parse failures into JSON-RPC parse errors so MCP clients
+  // see a structured response instead of Express's default HTML page.
   app.use(
     (err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
       if (err instanceof SyntaxError && 'body' in (err as object) && !res.headersSent) {
-        res.status(400).json({
-          jsonrpc: '2.0',
-          error: { code: -32700, message: 'Parse error' },
-          id: null,
-        });
+        res.status(400).json(jsonRpcError(-32700, 'Parse error'));
         return;
       }
       next(err);
@@ -1237,11 +1233,7 @@ async function runHttp(host: string, port: number) {
     } catch (err) {
       console.error('HTTP handler error:', err);
       if (!res.headersSent) {
-        res.status(500).json({
-          jsonrpc: '2.0',
-          error: { code: -32603, message: 'Internal server error' },
-          id: null,
-        });
+        res.status(500).json(jsonRpcError(-32603, 'Internal server error'));
       }
     }
   };
