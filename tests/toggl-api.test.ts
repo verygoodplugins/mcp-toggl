@@ -104,13 +104,13 @@ describe('getWorkspaceUsers', () => {
     fetchMock.mockReset();
   });
 
-  it('fetches from the workspace_users endpoint', async () => {
+  it('fetches from the documented /users endpoint and returns the raw records', async () => {
     fetchMock.mockResolvedValue(
       response({
         status: 200,
         json: [
-          { id: 1, uid: TEST_USER_ID, workspace_id: TEST_WORKSPACE_ID, name: 'Alice', email: 'alice@example.com', active: true, admin: false },
-          { id: 2, uid: TEST_USER_ID + 1, workspace_id: TEST_WORKSPACE_ID, name: 'Bob', email: 'bob@example.com', active: true, admin: true },
+          { id: TEST_USER_ID, fullname: 'Alice', email: 'alice@example.com', is_active: true, inactive: false, is_admin: false, role: 'admin' },
+          { id: TEST_USER_ID + 1, fullname: 'Bob', email: 'bob@example.com', is_active: true, inactive: false, is_admin: true, role: 'admin' },
         ],
       })
     );
@@ -119,11 +119,43 @@ describe('getWorkspaceUsers', () => {
     const users = await api.getWorkspaceUsers(TEST_WORKSPACE_ID);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining(`/workspaces/${TEST_WORKSPACE_ID}/workspace_users`),
+      expect.stringContaining(`/workspaces/${TEST_WORKSPACE_ID}/users`),
       expect.any(Object)
     );
     expect(users).toHaveLength(2);
-    expect(users[0]).toMatchObject({ uid: TEST_USER_ID, name: 'Alice' });
+    expect(users[0]).toMatchObject({ id: TEST_USER_ID, fullname: 'Alice' });
+  });
+});
+
+describe('toWorkspaceMemberSummary', () => {
+  it('maps id/fullname/is_active to uid/name/active', () => {
+    const summary = TogglAPI.toWorkspaceMemberSummary({
+      id: TEST_USER_ID,
+      fullname: 'Alice',
+      is_active: true,
+    });
+
+    expect(summary).toEqual({ uid: TEST_USER_ID, name: 'Alice', active: true });
+  });
+
+  it('exposes only uid/name/active and drops email, admin, role, and rates', () => {
+    const summary = TogglAPI.toWorkspaceMemberSummary({
+      id: TEST_USER_ID,
+      fullname: 'Alice',
+      is_active: true,
+      email: 'alice@example.com',
+      is_admin: true,
+      role: 'admin',
+      // fields the /workspace_users endpoint can carry; must never leak through this mapper
+      ...({ rate: 99, labor_cost: 50, invite_url: 'https://secret' } as Record<string, unknown>),
+    });
+
+    expect(Object.keys(summary).sort()).toEqual(['active', 'name', 'uid']);
+    expect(summary).not.toHaveProperty('email');
+    expect(summary).not.toHaveProperty('is_admin');
+    expect(summary).not.toHaveProperty('role');
+    expect(summary).not.toHaveProperty('rate');
+    expect(summary).not.toHaveProperty('labor_cost');
   });
 });
 
@@ -177,6 +209,42 @@ describe('getTimeEntriesForUserAndDateRange', () => {
       billable: false,
     });
     expect(entries[1]).toMatchObject({ id: 1002, duration: 1800, billable: true });
+  });
+
+  it('handles a flat row that carries entry fields directly (no nested time_entries)', async () => {
+    // The v3 response body schema is undocumented; defend against a row that is itself a single
+    // entry rather than a group wrapping a time_entries array.
+    fetchMock.mockResolvedValue(response({
+      status: 200,
+      json: [
+        {
+          user_id: TEST_USER_ID,
+          project_id: TEST_PROJECT_ID,
+          task_id: null,
+          billable: true,
+          description: 'flat entry',
+          tag_ids: [],
+          id: 2001,
+          seconds: 1200,
+          start: '2026-05-04T09:00:00+00:00',
+          stop: '2026-05-04T09:20:00+00:00',
+        },
+      ],
+    }));
+
+    const api = new TogglAPI('token');
+    const entries = await api.getTimeEntriesForUserAndDateRange(TEST_WORKSPACE_ID, TEST_USER_ID, new Date(2026, 4, 4), new Date(2026, 4, 11));
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: 2001,
+      workspace_id: TEST_WORKSPACE_ID,
+      project_id: TEST_PROJECT_ID,
+      duration: 1200,
+      description: 'flat entry',
+      user_id: TEST_USER_ID,
+      billable: true,
+    });
   });
 
   it('fetches multiple pages until X-Next-Row-Number header is absent', async () => {

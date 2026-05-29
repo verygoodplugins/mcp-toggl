@@ -1113,13 +1113,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 {
                   workspace_id: workspaceId,
                   count: users.length,
-                  users: users.map((u) => ({
-                    uid: u.uid,
-                    name: u.name ?? u.fullname,
-                    email: u.email,
-                    active: u.active,
-                    admin: u.admin,
-                  })),
+                  // Map to the privacy-safe {uid,name,active} shape. The mapper drops email,
+                  // admin/role, and any rate fields so they're never exposed by default.
+                  users: users.map(TogglAPI.toWorkspaceMemberSummary),
                 },
                 null,
                 2

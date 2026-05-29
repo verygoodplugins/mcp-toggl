@@ -7,6 +7,7 @@ import type {
   Task,
   User,
   WorkspaceUser,
+  WorkspaceMemberSummary,
   Tag,
   TimeEntry,
   TimeEntriesRequest,
@@ -166,7 +167,20 @@ export class TogglAPI {
   }
 
   async getWorkspaceUsers(workspaceId: number): Promise<WorkspaceUser[]> {
-    return this.request<WorkspaceUser[]>('GET', `/workspaces/${workspaceId}/workspace_users`);
+    // Documented Toggl v9 endpoint "Get workspace users". Each item's user id is the `id`
+    // field (the docs call it the "Global user identifier") — there is no `uid` here.
+    // Membership status is `is_active`. The endpoint also returns `email`, `is_admin`, and
+    // `role`, which toWorkspaceMemberSummary() strips before the tool returns them.
+    // Chosen over /workspace_users: the only documented `workspace_users` GET is org-scoped
+    // (/organizations/{org}/workspaces/{ws}/workspace_users), which we don't have an org id
+    // for; the non-org /workspace_users path is undocumented in v9.
+    return this.request<WorkspaceUser[]>('GET', `/workspaces/${workspaceId}/users`);
+  }
+
+  // Maps a raw /users record to the privacy-safe shape the tool exposes. Kept as a standalone
+  // pure function so the "no email/admin/role leaks" guarantee is directly unit-testable.
+  static toWorkspaceMemberSummary(raw: WorkspaceUser): WorkspaceMemberSummary {
+    return { uid: raw.id as number, name: raw.fullname as string, active: raw.is_active as boolean };
   }
 
   private async reportsRequest<T>(
@@ -213,6 +227,11 @@ export class TogglAPI {
     // Convert exclusive end to inclusive for the Reports API.
     const inclusiveEnd = new Date(endDate);
     inclusiveEnd.setDate(inclusiveEnd.getDate() - 1);
+    // A row from /search/time_entries. In practice each row wraps its entries in a nested
+    // `time_entries` array, but the v9 docs don't publish this endpoint's response schema
+    // (the 200 is only labelled "Returns grouped time entries"), so we also tolerate a row
+    // that carries the entry fields directly — see the defensive flatten below.
+    type ReportEntry = { id: number; seconds: number; start: string; stop: string };
     type ReportRow = {
       user_id: number;
       project_id: number | null;
@@ -220,8 +239,8 @@ export class TogglAPI {
       billable: boolean;
       description: string;
       tag_ids: number[];
-      time_entries: Array<{ id: number; seconds: number; start: string; stop: string }>;
-    };
+      time_entries?: ReportEntry[];
+    } & Partial<ReportEntry>;
 
     const allEntries: TimeEntry[] = [];
     let firstRowNumber = 1;
@@ -235,12 +254,21 @@ export class TogglAPI {
           start_date: toLocalYMD(startDate),
           end_date: toLocalYMD(inclusiveEnd),
           first_row_number: firstRowNumber,
+          // `grouped` is intentionally not sent: the docs confirm it defaults to false and it
+          // only affects description-filtered queries (which this one isn't), so it has no
+          // effect here.
         }
       );
 
-      // Flatten grouped rows into individual TimeEntry objects.
+      // Flatten each row into individual TimeEntry objects. The response shape is undocumented,
+      // so be defensive: if a row nests its entries under `time_entries`, use those; otherwise
+      // treat the row itself as a single entry.
       for (const row of rows) {
-        for (const te of row.time_entries) {
+        const entries: ReportEntry[] =
+          Array.isArray(row.time_entries) && row.time_entries.length > 0
+            ? row.time_entries
+            : [{ id: row.id as number, seconds: row.seconds as number, start: row.start as string, stop: row.stop as string }];
+        for (const te of entries) {
           allEntries.push({
             id: te.id,
             workspace_id: workspaceId,

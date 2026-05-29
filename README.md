@@ -141,7 +141,7 @@ mcp-toggl --help
 | `toggl_list_workspaces` | Lists all accessible workspaces. |
 | `toggl_list_projects` | Lists projects for a workspace using cache-backed reads after first fetch. |
 | `toggl_list_clients` | Lists clients for a workspace using cache-backed reads after first fetch. |
-| `toggl_list_workspace_users` | Lists all members of a workspace with their `uid` values. Use these to filter reports by a specific team member. |
+| `toggl_list_workspace_users` | Lists workspace members as `uid`, `name`, and `active` only (no email, admin, or rates). Use a member's `uid` to filter reports by that team member. |
 
 ### Cache Management
 

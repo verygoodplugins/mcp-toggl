@@ -97,16 +97,29 @@ export interface User {
   updated_at?: string;
 }
 
+// Item shape of the documented Toggl v9 "Get workspace users" endpoint
+// (GET /workspaces/{id}/users). `id` is the global user identifier (there is no `uid`);
+// membership status is `is_active` (with `inactive` as its inverse). `email`, `is_admin`,
+// and `role` are returned by the API but stripped before the tool exposes them — see
+// TogglAPI.toWorkspaceMemberSummary. Fields are optional to tolerate API additions.
 export interface WorkspaceUser {
-  id: number;
-  uid: number;
-  workspace_id: number;
+  id?: number;
   email?: string;
-  name?: string;
   fullname?: string;
-  active?: boolean;
-  admin?: boolean;
+  is_active?: boolean;
+  inactive?: boolean;
+  is_admin?: boolean;
+  role?: string;
   at?: string;
+}
+
+// Privacy-safe view of a workspace member returned by the toggl_list_workspace_users tool:
+// just enough to identify a member and feed the report tools' `uid` filter. Deliberately
+// excludes email, admin/role, and any rate/billing fields.
+export interface WorkspaceMemberSummary {
+  uid: number;
+  name: string;
+  active: boolean;
 }
 
 export interface Tag {
