@@ -162,9 +162,40 @@ export class TogglAPI {
     return this.request<Workspace>('GET', `/workspaces/${workspaceId}`);
   }
 
+  // Toggl v9 list endpoints paginate by `page`/`per_page` (1-indexed, sorted by name).
+  // Without explicit pagination the API returns only the first page and silently drops
+  // the tail, so any project/client past it fails to resolve and shows as "Project <id>".
+  private static readonly PAGE_SIZE = 200;
+  private static readonly MAX_PAGES = 100;
+
+  private async requestAllPages<T extends { id?: number }>(endpoint: string): Promise<T[]> {
+    const sep = endpoint.includes('?') ? '&' : '?';
+    const all: T[] = [];
+    let prevFirstId: number | undefined;
+
+    for (let page = 1; page <= TogglAPI.MAX_PAGES; page++) {
+      const batch = await this.request<T[]>(
+        'GET',
+        `${endpoint}${sep}per_page=${TogglAPI.PAGE_SIZE}&page=${page}`
+      );
+      if (!Array.isArray(batch) || batch.length === 0) break;
+
+      // Guard against endpoints that ignore `page` and keep returning the same window,
+      // which would otherwise loop until MAX_PAGES.
+      const firstId = batch[0]?.id;
+      if (page > 1 && firstId !== undefined && firstId === prevFirstId) break;
+      prevFirstId = firstId;
+
+      all.push(...batch);
+      if (batch.length < TogglAPI.PAGE_SIZE) break;
+    }
+
+    return all;
+  }
+
   // Project methods
   async getProjects(workspaceId: number): Promise<Project[]> {
-    return this.request<Project[]>('GET', `/workspaces/${workspaceId}/projects`);
+    return this.requestAllPages<Project>(`/workspaces/${workspaceId}/projects`);
   }
 
   async getProject(projectId: number): Promise<Project> {
@@ -181,7 +212,7 @@ export class TogglAPI {
 
   // Client methods
   async getClients(workspaceId: number): Promise<Client[]> {
-    return this.request<Client[]>('GET', `/workspaces/${workspaceId}/clients`);
+    return this.requestAllPages<Client>(`/workspaces/${workspaceId}/clients`);
   }
 
   async getClient(clientId: number): Promise<Client> {
