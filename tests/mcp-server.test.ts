@@ -34,6 +34,14 @@ function installMockTogglApi() {
     color: '#123456',
   };
   const client = { id: 40, workspace_id: 20, name: 'Client', archived: false };
+  const task = {
+    id: 45,
+    workspace_id: 20,
+    project_id: 30,
+    name: 'Review',
+    active: true,
+    tracked_seconds: 0,
+  };
   const tags = [{ id: 50, workspace_id: 20, name: 'tag' }];
   const entry = {
     id: 60,
@@ -48,7 +56,7 @@ function installMockTogglApi() {
     tag_ids: [50],
   };
 
-  fetchMock.mockImplementation(async (url: string, init?: { method?: string }) => {
+  fetchMock.mockImplementation(async (url: string, init?: { body?: string; method?: string }) => {
     const method = init?.method ?? 'GET';
 
     if (url.endsWith('/me'))
@@ -56,6 +64,7 @@ function installMockTogglApi() {
     if (url.endsWith('/workspaces')) return response({ json: [workspace] });
     if (url.endsWith('/workspaces/20')) return response({ json: workspace });
     if (url.endsWith('/workspaces/20/projects')) return response({ json: [project] });
+    if (url.endsWith('/workspaces/20/projects/30/tasks')) return response({ json: [task] });
     if (url.endsWith('/workspaces/20/clients')) return response({ json: [client] });
     if (url.endsWith('/workspaces/20/tags')) return response({ json: tags });
     if (url.includes('/me/time_entries/current')) return response({ json: null });
@@ -76,15 +85,34 @@ function installMockTogglApi() {
       });
     }
     if (method === 'POST' && url.endsWith('/workspaces/20/time_entries')) {
+      const body = JSON.parse(init?.body ?? '{}') as Record<string, unknown>;
       return response({
         json: {
           ...entry,
           id: 61,
-          stop: undefined,
-          duration: -1,
-          description: 'Started timer',
+          project_id: body.project_id ?? entry.project_id,
+          task_id: body.task_id,
+          stop: body.stop,
+          duration: body.duration ?? -1,
+          description: body.description ?? 'Started timer',
+          billable: body.billable,
+          start: body.start ?? entry.start,
         },
       });
+    }
+    if (method === 'PUT' && url.endsWith('/workspaces/20/time_entries/60')) {
+      const body = JSON.parse(init?.body ?? '{}') as Record<string, unknown>;
+      return response({
+        json: {
+          ...entry,
+          ...body,
+          id: 60,
+          workspace_id: 20,
+        },
+      });
+    }
+    if (method === 'DELETE' && url.endsWith('/workspaces/20/time_entries/60')) {
+      return response({ json: {} });
     }
 
     return response({ status: 404, json: { error: 'not found' } });
@@ -138,6 +166,40 @@ describe('mcp server handlers', () => {
         default: true,
         deprecated: true,
       });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('lists task and time-entry write tool schemas', async () => {
+    const { client } = await createClient();
+
+    try {
+      const tools = await client.listTools();
+      const byName = new Map(tools.tools.map((tool) => [tool.name, tool]));
+
+      expect(byName.get('toggl_list_tasks')?.annotations).toMatchObject({
+        readOnlyHint: true,
+        idempotentHint: true,
+      });
+      expect(byName.get('toggl_list_tasks')?.inputSchema.required).toEqual(['project_id']);
+
+      expect(byName.get('toggl_create_time_entry')?.annotations).toMatchObject({
+        readOnlyHint: false,
+        idempotentHint: false,
+      });
+      expect(byName.get('toggl_update_time_entry')?.annotations).toMatchObject({
+        readOnlyHint: false,
+        idempotentHint: true,
+      });
+      expect(byName.get('toggl_delete_time_entry')?.annotations).toMatchObject({
+        destructiveHint: true,
+      });
+
+      const startTimerProps = byName.get('toggl_start_timer')?.inputSchema.properties as
+        | Record<string, unknown>
+        | undefined;
+      expect(startTimerProps).toHaveProperty('billable');
     } finally {
       await client.close();
     }
@@ -247,6 +309,14 @@ describe('mcp server handlers', () => {
         clients: [{ id: 40, name: 'Client' }],
       });
       await expect(
+        callTool(client, 'toggl_list_tasks', { workspace_id: 20, project_id: 30 })
+      ).resolves.toMatchObject({
+        workspace_id: 20,
+        project_id: 30,
+        count: 1,
+        tasks: [{ id: 45, name: 'Review' }],
+      });
+      await expect(
         callTool(client, 'toggl_warm_cache', { workspace_id: 20 })
       ).resolves.toMatchObject({
         success: true,
@@ -288,15 +358,143 @@ describe('mcp server handlers', () => {
           workspace_id: 20,
           description: 'Started timer',
           project_id: 30,
+          task_id: 45,
           tags: ['tag'],
+          billable: true,
         })
       ).resolves.toMatchObject({
         success: true,
-        entry: { id: 61, running: true },
+        entry: { id: 61, billable: true, running: true, task_name: 'Review' },
+      });
+      await expect(
+        callTool(client, 'toggl_create_time_entry', {
+          workspace_id: 20,
+          start: '2026-05-01T11:00:00Z',
+          duration: 1800,
+          description: 'Backfilled work',
+          project_id: 30,
+          task_id: 45,
+          billable: true,
+        })
+      ).resolves.toMatchObject({
+        success: true,
+        entry: { id: 61, description: 'Backfilled work', task_name: 'Review' },
+      });
+      await expect(
+        callTool(client, 'toggl_update_time_entry', {
+          workspace_id: 20,
+          entry_id: 60,
+          project_id: 30,
+          task_id: 45,
+          description: 'Categorized work',
+          billable: true,
+        })
+      ).resolves.toMatchObject({
+        success: true,
+        entry: { id: 60, description: 'Categorized work', task_name: 'Review' },
+      });
+      await expect(
+        callTool(client, 'toggl_delete_time_entry', { workspace_id: 20, entry_id: 60 })
+      ).resolves.toMatchObject({
+        success: true,
+        workspace_id: 20,
+        entry_id: 60,
       });
       await expect(callTool(client, 'toggl_stop_timer')).resolves.toMatchObject({
         success: false,
         message: 'No timer currently running',
+      });
+
+      const updateCall = fetchMock.mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith('/workspaces/20/time_entries/60') && init?.method === 'PUT'
+      );
+      expect(updateCall).toBeDefined();
+      expect(JSON.parse(updateCall![1]?.body as string)).toEqual({
+        description: 'Categorized work',
+        project_id: 30,
+        task_id: 45,
+        billable: true,
+      });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('returns user-input errors for invalid write tool arguments', async () => {
+    installMockTogglApi();
+
+    const { client } = await createClient();
+
+    try {
+      await expect(
+        callTool(client, 'toggl_update_time_entry', { workspace_id: 20, entry_id: 60 })
+      ).resolves.toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        message: 'No fields to update; provide at least one updatable field',
+      });
+      await expect(
+        callTool(client, 'toggl_create_time_entry', {
+          workspace_id: 20,
+          start: '2026-05-01T11:00:00Z',
+          stop: '2026-05-01T12:00:00Z',
+          duration: 3600,
+        })
+      ).resolves.toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        message: 'Provide either stop or duration, not both',
+      });
+      await expect(
+        callTool(client, 'toggl_create_time_entry', {
+          workspace_id: 20,
+          start: '2026-05-01T11:00:00Z',
+        })
+      ).resolves.toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        message: 'Provide either stop or duration',
+      });
+      await expect(
+        callTool(client, 'toggl_create_time_entry', {
+          workspace_id: 20,
+          start: '2026-05-01T11:00:00Z',
+          duration: '3600',
+        })
+      ).resolves.toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        message: 'Invalid argument: duration must be a finite number',
+      });
+      await expect(
+        callTool(client, 'toggl_update_time_entry', {
+          workspace_id: 20,
+          entry_id: 60,
+          billable: 'true',
+        })
+      ).resolves.toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        message: 'Invalid argument: billable must be a boolean',
+      });
+      await expect(
+        callTool(client, 'toggl_update_time_entry', {
+          workspace_id: 20,
+          entry_id: 60,
+          tags: 'tag',
+        })
+      ).resolves.toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        message: 'Invalid argument: tags must be an array of strings',
+      });
+      await expect(
+        callTool(client, 'toggl_list_tasks', { workspace_id: 20 })
+      ).resolves.toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        message: 'project_id is required',
       });
     } finally {
       await client.close();

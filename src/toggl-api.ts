@@ -130,12 +130,21 @@ export class TogglAPI {
           throw new Error(`Toggl API request failed (${response.status}).`);
         }
 
-        // Handle 204 No Content
+        // Toggl returns 200 with an empty body for some successful write endpoints.
         if (response.status === 204) {
           return {} as T;
         }
 
-        return (await response.json()) as T;
+        if (response.headers.get('content-length') === '0') {
+          return {} as T;
+        }
+
+        const responseText = await response.text();
+        if (responseText.length === 0) {
+          return {} as T;
+        }
+
+        return JSON.parse(responseText) as T;
       } catch (error: any) {
         if (error?.noRetry || i === retries - 1) throw error;
         // Exponential backoff for transient/network errors
@@ -149,6 +158,10 @@ export class TogglAPI {
   // User methods
   async getMe(): Promise<User> {
     return this.request<User>('GET', '/me');
+  }
+
+  private async writeRequest<T>(method: string, endpoint: string, body?: unknown): Promise<T> {
+    return this.request<T>(method, endpoint, body, 1);
   }
 
   async getUser(_userId: number): Promise<User> {
@@ -263,7 +276,7 @@ export class TogglAPI {
       ...entry,
     };
 
-    return this.request<TimeEntry>('POST', `/workspaces/${workspaceId}/time_entries`, payload);
+    return this.writeRequest<TimeEntry>('POST', `/workspaces/${workspaceId}/time_entries`, payload);
   }
 
   async updateTimeEntry(
@@ -271,7 +284,7 @@ export class TogglAPI {
     timeEntryId: number,
     updates: UpdateTimeEntryRequest
   ): Promise<TimeEntry> {
-    return this.request<TimeEntry>(
+    return this.writeRequest<TimeEntry>(
       'PUT',
       `/workspaces/${workspaceId}/time_entries/${timeEntryId}`,
       updates
@@ -279,7 +292,10 @@ export class TogglAPI {
   }
 
   async deleteTimeEntry(workspaceId: number, timeEntryId: number): Promise<void> {
-    await this.request<void>('DELETE', `/workspaces/${workspaceId}/time_entries/${timeEntryId}`);
+    await this.writeRequest<void>(
+      'DELETE',
+      `/workspaces/${workspaceId}/time_entries/${timeEntryId}`
+    );
   }
 
   async startTimer(
@@ -287,13 +303,15 @@ export class TogglAPI {
     description?: string,
     projectId?: number,
     taskId?: number,
-    tags?: string[]
+    tags?: string[],
+    billable?: boolean
   ): Promise<TimeEntry> {
     const entry: Partial<CreateTimeEntryRequest> = {
       description,
       project_id: projectId,
       task_id: taskId,
       tags,
+      billable,
       start: new Date().toISOString(),
       duration: -1, // Negative duration indicates running timer
     };
