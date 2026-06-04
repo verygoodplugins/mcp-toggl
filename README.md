@@ -70,6 +70,8 @@ Chart prompts depend on your MCP client. The server returns the structured data;
 
 **Recoverable errors**: workspace resolution errors include `available_workspaces`, and Toggl quota/rate-limit errors include structured retry hints.
 
+**Team reporting**: report tools support `uid` plus `workspace_id` to pull a workspace member's entries through the Toggl Reports API v3. Use `toggl_list_workspace_users` to find privacy-safe member identifiers.
+
 ## Quick Start
 
 ### Prerequisites
@@ -116,12 +118,12 @@ mcp-toggl --help
 
 ### Reports and Insights
 
-| Tool                     | What it does                                                                                                        |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `toggl_daily_report`     | Hours by project and workspace for a date. Use `format: "text"` for display text or `"json"` for structured output. |
-| `toggl_weekly_report`    | 7-day breakdown with daily totals and project rollups. Use `week_offset: -1` for last week.                         |
-| `toggl_get_time_entries` | Raw hydrated entries by period, date range, workspace, or project.                                                  |
-| `toggl_get_timeline`     | Toggl Track Desktop app usage summary with optional raw events.                                                     |
+| Tool                     | What it does                                                                                                                                  |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `toggl_daily_report`     | Hours by project and workspace for a date. Use `format: "text"` for display text or `"json"` for structured output. Supports `uid` filtering. |
+| `toggl_weekly_report`    | 7-day breakdown with daily totals and project rollups. Use `week_offset: -1` for last week. Supports `uid` filtering.                         |
+| `toggl_get_time_entries` | Raw hydrated entries by period, date range, workspace, or project.                                                                            |
+| `toggl_get_timeline`     | Toggl Track Desktop app usage summary with optional raw events.                                                                               |
 
 ### Timer Control
 
@@ -133,12 +135,13 @@ mcp-toggl --help
 
 ### Lookups
 
-| Tool                    | What it does                                                                     |
-| ----------------------- | -------------------------------------------------------------------------------- |
-| `toggl_check_auth`      | Verifies token access and lists available workspaces without exposing the token. |
-| `toggl_list_workspaces` | Lists all accessible workspaces.                                                 |
-| `toggl_list_projects`   | Lists projects for a workspace using cache-backed reads after first fetch.       |
-| `toggl_list_clients`    | Lists clients for a workspace using cache-backed reads after first fetch.        |
+| Tool                         | What it does                                                                                                             |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `toggl_check_auth`           | Verifies token access and lists available workspaces without exposing the token.                                         |
+| `toggl_list_workspaces`      | Lists all accessible workspaces.                                                                                         |
+| `toggl_list_projects`        | Lists projects for a workspace using cache-backed reads after first fetch.                                               |
+| `toggl_list_clients`         | Lists clients for a workspace using cache-backed reads after first fetch.                                                |
+| `toggl_list_workspace_users` | Lists workspace members as `uid`, `name`, and `active` only. Use a member's `uid` to filter reports by that team member. |
 
 ### Cache Management
 
@@ -150,10 +153,10 @@ mcp-toggl --help
 
 ### Summaries
 
-| Tool                      | What it does                                          |
-| ------------------------- | ----------------------------------------------------- |
-| `toggl_project_summary`   | Total hours per project for a period or date range.   |
-| `toggl_workspace_summary` | Total hours per workspace for a period or date range. |
+| Tool                      | What it does                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| `toggl_project_summary`   | Total hours per project for a period or date range. Supports `uid` filtering.   |
+| `toggl_workspace_summary` | Total hours per workspace for a period or date range. Supports `uid` filtering. |
 
 ## Timeline Privacy
 
@@ -233,21 +236,21 @@ Fly, Render, Coolify, and a bare VPS all use the same image and env vars. Requir
 
 ## Configuration Reference
 
-| Env var                            | Required         | Default   | Notes                                                                                   |
-| ---------------------------------- | ---------------- | --------- | --------------------------------------------------------------------------------------- |
-| `TOGGL_API_KEY`                    | One token env    | -         | Toggl API token for local stdio installs.                                               |
-| `TOGGL_API_TOKEN`                  | One token env    | -         | Toggl API token for Docker/PaaS installs.                                               |
-| `TOGGL_TOKEN`                      | No               | -         | Legacy alias. Prefer `TOGGL_API_KEY` or `TOGGL_API_TOKEN`.                              |
-| `TOGGL_DEFAULT_WORKSPACE_ID`       | No               | -         | Used when a tool requires a workspace and none is passed.                               |
-| `TOGGL_CACHE_TTL`                  | No               | `3600000` | Cache TTL in milliseconds. Default is 1 hour.                                           |
-| `TOGGL_CACHE_SIZE`                 | No               | `1000`    | Maximum cached entity budget.                                                           |
-| `TOGGL_BATCH_SIZE`                 | No               | `100`     | Batch size used by API pagination helpers.                                              |
-| `TRANSPORT`                        | No               | `stdio`   | Use `http` for Streamable HTTP self-hosting.                                            |
-| `MCP_HTTP_AUTH_TOKEN`              | HTTP deployments | -         | Bearer token required for `/mcp` unless loopback unauthenticated mode is explicitly set. |
-| `MCP_HTTP_CORS_ORIGIN`             | No               | -         | Optional browser CORS origin. No CORS response headers are sent by default.             |
-| `MCP_HTTP_ALLOW_UNAUTHENTICATED`   | No               | `false`   | Set to `true` only for loopback-only HTTP development without auth.                     |
-| `PORT`                             | No               | `3000`    | HTTP port when `TRANSPORT=http`.                                                        |
-| `HOST`                             | No               | `0.0.0.0` | HTTP bind host when `TRANSPORT=http`.                                                   |
+| Env var                          | Required         | Default   | Notes                                                                                    |
+| -------------------------------- | ---------------- | --------- | ---------------------------------------------------------------------------------------- |
+| `TOGGL_API_KEY`                  | One token env    | -         | Toggl API token for local stdio installs.                                                |
+| `TOGGL_API_TOKEN`                | One token env    | -         | Toggl API token for Docker/PaaS installs.                                                |
+| `TOGGL_TOKEN`                    | No               | -         | Legacy alias. Prefer `TOGGL_API_KEY` or `TOGGL_API_TOKEN`.                               |
+| `TOGGL_DEFAULT_WORKSPACE_ID`     | No               | -         | Used when a tool requires a workspace and none is passed.                                |
+| `TOGGL_CACHE_TTL`                | No               | `3600000` | Cache TTL in milliseconds. Default is 1 hour.                                            |
+| `TOGGL_CACHE_SIZE`               | No               | `1000`    | Maximum cached entity budget.                                                            |
+| `TOGGL_BATCH_SIZE`               | No               | `100`     | Batch size used by API pagination helpers.                                               |
+| `TRANSPORT`                      | No               | `stdio`   | Use `http` for Streamable HTTP self-hosting.                                             |
+| `MCP_HTTP_AUTH_TOKEN`            | HTTP deployments | -         | Bearer token required for `/mcp` unless loopback unauthenticated mode is explicitly set. |
+| `MCP_HTTP_CORS_ORIGIN`           | No               | -         | Optional browser CORS origin. No CORS response headers are sent by default.              |
+| `MCP_HTTP_ALLOW_UNAUTHENTICATED` | No               | `false`   | Set to `true` only for loopback-only HTTP development without auth.                      |
+| `PORT`                           | No               | `3000`    | HTTP port when `TRANSPORT=http`.                                                         |
+| `HOST`                           | No               | `0.0.0.0` | HTTP bind host when `TRANSPORT=http`.                                                    |
 
 ## Caveats
 

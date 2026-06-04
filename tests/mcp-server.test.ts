@@ -24,6 +24,18 @@ function response({ status = 200, json }: { status?: number; json: unknown }) {
 
 function installMockTogglApi() {
   const workspace = { id: 20, name: 'Workspace', premium: false, default_currency: 'USD' };
+  const workspaceUsers = [
+    {
+      id: 11,
+      fullname: 'Alice Manager',
+      email: 'alice@example.com',
+      is_active: true,
+      is_admin: true,
+      role: 'admin',
+      rate: 99,
+      labor_cost: 50,
+    },
+  ];
   const project = {
     id: 30,
     workspace_id: 20,
@@ -48,13 +60,14 @@ function installMockTogglApi() {
     tag_ids: [50],
   };
 
-  fetchMock.mockImplementation(async (url: string, init?: { method?: string }) => {
+  fetchMock.mockImplementation(async (url: string, init?: { body?: string; method?: string }) => {
     const method = init?.method ?? 'GET';
 
     if (url.endsWith('/me'))
       return response({ json: { id: 10, email: 'private@example.com', fullname: 'Private User' } });
     if (url.endsWith('/workspaces')) return response({ json: [workspace] });
     if (url.endsWith('/workspaces/20')) return response({ json: workspace });
+    if (url.endsWith('/workspaces/20/users')) return response({ json: { items: workspaceUsers } });
     if (url.endsWith('/workspaces/20/projects')) return response({ json: [project] });
     if (url.endsWith('/workspaces/20/clients')) return response({ json: [client] });
     if (url.endsWith('/workspaces/20/tags')) return response({ json: tags });
@@ -84,6 +97,29 @@ function installMockTogglApi() {
           duration: -1,
           description: 'Started timer',
         },
+      });
+    }
+    if (method === 'POST' && url.endsWith('/reports/api/v3/workspace/20/search/time_entries')) {
+      const body = JSON.parse(init?.body ?? '{}') as { user_ids?: number[] };
+      return response({
+        json: [
+          {
+            user_id: body.user_ids?.[0] ?? 11,
+            project_id: 30,
+            task_id: null,
+            billable: true,
+            description: 'Team report work',
+            tag_ids: [50],
+            time_entries: [
+              {
+                id: 80,
+                seconds: 3600,
+                start: '2026-05-01T09:00:00Z',
+                stop: '2026-05-01T10:00:00Z',
+              },
+            ],
+          },
+        ],
       });
     }
 
@@ -138,6 +174,37 @@ describe('mcp server handlers', () => {
         default: true,
         deprecated: true,
       });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('lists workspace user and uid report filter schemas', async () => {
+    const { client } = await createClient();
+
+    try {
+      const tools = await client.listTools();
+      const workspaceUsersTool = tools.tools.find(
+        (tool) => tool.name === 'toggl_list_workspace_users'
+      );
+      const reportToolNames = [
+        'toggl_daily_report',
+        'toggl_weekly_report',
+        'toggl_project_summary',
+        'toggl_workspace_summary',
+      ];
+
+      expect(workspaceUsersTool?.annotations).toMatchObject({
+        readOnlyHint: true,
+        idempotentHint: true,
+      });
+      expect(workspaceUsersTool?.inputSchema.properties).toHaveProperty('workspace_id');
+
+      for (const toolName of reportToolNames) {
+        const tool = tools.tools.find((candidate) => candidate.name === toolName);
+        expect(tool?.inputSchema.properties).toHaveProperty('uid');
+        expect(tool?.inputSchema.properties).toHaveProperty('workspace_id');
+      }
     } finally {
       await client.close();
     }
@@ -247,6 +314,13 @@ describe('mcp server handlers', () => {
         clients: [{ id: 40, name: 'Client' }],
       });
       await expect(
+        callTool(client, 'toggl_list_workspace_users', { workspace_id: 20 })
+      ).resolves.toEqual({
+        workspace_id: 20,
+        count: 1,
+        users: [{ uid: 11, name: 'Alice Manager', active: true }],
+      });
+      await expect(
         callTool(client, 'toggl_warm_cache', { workspace_id: 20 })
       ).resolves.toMatchObject({
         success: true,
@@ -263,6 +337,16 @@ describe('mcp server handlers', () => {
         callTool(client, 'toggl_daily_report', { date: '2026-05-01' })
       ).resolves.toMatchObject({
         total_seconds: 3600,
+      });
+      await expect(
+        callTool(client, 'toggl_daily_report', {
+          date: '2026-05-01',
+          uid: 11,
+          workspace_id: 20,
+        })
+      ).resolves.toMatchObject({
+        total_seconds: 3600,
+        entries: [{ id: 80 }],
       });
       await expect(
         callTool(client, 'toggl_project_summary', {
@@ -297,6 +381,26 @@ describe('mcp server handlers', () => {
       await expect(callTool(client, 'toggl_stop_timer')).resolves.toMatchObject({
         success: false,
         message: 'No timer currently running',
+      });
+
+      const workspaceUsersPayload = await callTool(client, 'toggl_list_workspace_users', {
+        workspace_id: 20,
+      });
+      const serializedUsers = JSON.stringify(workspaceUsersPayload);
+      expect(serializedUsers).not.toContain('alice@example.com');
+      expect(serializedUsers).not.toContain('is_admin');
+      expect(serializedUsers).not.toContain('role');
+      expect(serializedUsers).not.toContain('rate');
+      expect(serializedUsers).not.toContain('labor_cost');
+
+      const reportCall = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes('/reports/api/v3/workspace/20/search/time_entries')
+      );
+      expect(reportCall).toBeDefined();
+      expect(JSON.parse(reportCall![1]?.body as string)).toMatchObject({
+        user_ids: [11],
+        start_date: '2026-05-01',
+        end_date: '2026-05-01',
       });
     } finally {
       await client.close();

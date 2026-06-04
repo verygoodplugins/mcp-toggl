@@ -1,4 +1,4 @@
-import fetch from 'node-fetch';
+import fetch, { type RequestInit, type Response } from 'node-fetch';
 import { toLocalYMD } from './utils.js';
 import type {
   Workspace,
@@ -6,6 +6,8 @@ import type {
   Client,
   Task,
   User,
+  WorkspaceUser,
+  WorkspaceMemberSummary,
   Tag,
   TimeEntry,
   TimeEntriesRequest,
@@ -68,19 +70,12 @@ export class TogglAPI {
     };
   }
 
-  // Generic API request method
-  private async request<T>(method: string, endpoint: string, body?: any, retries = 3): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
-
+  // Shared fetch loop for retryable network, 429, and 5xx responses.
+  private async fetchWithRetry(url: string, init: RequestInit, retries = 3): Promise<Response> {
     for (let i = 0; i < retries; i++) {
       try {
-        const response = await fetch(url, {
-          method,
-          headers: this.headers,
-          body: body ? JSON.stringify(body) : undefined,
-        });
+        const response = await fetch(url, init);
 
-        // Handle rate limiting without sleeping for multi-minute quota resets.
         if (response.status === 429) {
           const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'));
           const delay = retryAfterSeconds !== undefined ? retryAfterSeconds * 1000 : (i + 1) * 2000;
@@ -100,42 +95,12 @@ export class TogglAPI {
           });
         }
 
-        if (!response.ok) {
-          const text = await response.text();
-          if (response.status === 402) {
-            const retryAfterSeconds = parseQuotaResetSeconds(text);
-            throw new TogglAPIError({
-              status: response.status,
-              code: 'TOGGL_QUOTA_LIMIT',
-              message: `Toggl API quota limit reached.${retryAfterSeconds !== undefined ? ` Quota resets in ${retryAfterSeconds} seconds.` : ''}`,
-              retryAfterSeconds,
-              tip: 'Wait for the Toggl quota window to reset. Cache-backed list tools avoid repeated project/client fetches after they are warmed.',
-            });
-          }
-
-          if (response.status >= 400 && response.status < 500) {
-            const isAuth = response.status === 401 || response.status === 403;
-            throw new TogglAPIError({
-              status: response.status,
-              code: isAuth ? 'AUTHENTICATION_FAILED' : 'TOGGL_API_CLIENT_ERROR',
-              message: isAuth
-                ? `Authentication failed (${response.status}). Verify TOGGL_API_KEY is correct, has no leading/trailing spaces, and is the Toggl Track API token.`
-                : `Toggl API rejected the request (${response.status}).`,
-              tip: isAuth
-                ? 'Regenerate or copy your Toggl Track API token from track.toggl.com/profile and restart the MCP server.'
-                : 'Check the tool arguments and Toggl workspace permissions, then retry.',
-            });
-          }
-
-          throw new Error(`Toggl API request failed (${response.status}).`);
+        if (response.status >= 500 && i < retries - 1) {
+          await new Promise((resolve) => setTimeout(resolve, (i + 1) * 1000));
+          continue;
         }
 
-        // Handle 204 No Content
-        if (response.status === 204) {
-          return {} as T;
-        }
-
-        return (await response.json()) as T;
+        return response;
       } catch (error: any) {
         if (error?.noRetry || i === retries - 1) throw error;
         // Exponential backoff for transient/network errors
@@ -144,6 +109,60 @@ export class TogglAPI {
     }
 
     throw new Error('Max retries reached');
+  }
+
+  // Generic API request method
+  private async request<T>(method: string, endpoint: string, body?: any, retries = 3): Promise<T> {
+    const url = `${this.baseUrl}${endpoint}`;
+    const response = await this.fetchWithRetry(
+      url,
+      {
+        method,
+        headers: this.headers,
+        body: body ? JSON.stringify(body) : undefined,
+      },
+      retries
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      if (response.status === 402) {
+        const retryAfterSeconds = parseQuotaResetSeconds(text);
+        throw new TogglAPIError({
+          status: response.status,
+          code: 'TOGGL_QUOTA_LIMIT',
+          message: `Toggl API quota limit reached.${retryAfterSeconds !== undefined ? ` Quota resets in ${retryAfterSeconds} seconds.` : ''}`,
+          retryAfterSeconds,
+          tip: 'Wait for the Toggl quota window to reset. Cache-backed list tools avoid repeated project/client fetches after they are warmed.',
+        });
+      }
+
+      if (response.status >= 400 && response.status < 500) {
+        const isAuth = response.status === 401 || response.status === 403;
+        throw new TogglAPIError({
+          status: response.status,
+          code: isAuth ? 'AUTHENTICATION_FAILED' : 'TOGGL_API_CLIENT_ERROR',
+          message: isAuth
+            ? `Authentication failed (${response.status}). Verify TOGGL_API_KEY is correct, has no leading/trailing spaces, and is the Toggl Track API token.`
+            : `Toggl API rejected the request (${response.status}).`,
+          tip: isAuth
+            ? 'Regenerate or copy your Toggl Track API token from track.toggl.com/profile and restart the MCP server.'
+            : 'Check the tool arguments and Toggl workspace permissions, then retry.',
+        });
+      }
+
+      throw new Error(`Toggl API request failed (${response.status}).`);
+    }
+
+    if (response.status === 204) {
+      return {} as T;
+    }
+
+    try {
+      return (await response.json()) as T;
+    } catch (_error) {
+      return {} as T;
+    }
   }
 
   // User methods
@@ -163,6 +182,160 @@ export class TogglAPI {
 
   async getWorkspace(workspaceId: number): Promise<Workspace> {
     return this.request<Workspace>('GET', `/workspaces/${workspaceId}`);
+  }
+
+  async getWorkspaceUsers(workspaceId: number): Promise<WorkspaceUser[]> {
+    const response = await this.request<WorkspaceUser[] | { items?: WorkspaceUser[] }>(
+      'GET',
+      `/workspaces/${workspaceId}/users`
+    );
+
+    if (Array.isArray(response)) return response;
+    if (Array.isArray(response.items)) return response.items;
+    throw new Error('Toggl workspace users response had an unexpected shape.');
+  }
+
+  static toWorkspaceMemberSummary(raw: WorkspaceUser): WorkspaceMemberSummary {
+    return {
+      uid: raw.id as number,
+      name: raw.fullname ?? '',
+      active: raw.is_active ?? !raw.inactive,
+    };
+  }
+
+  private async reportsRequest<T>(
+    workspaceId: number,
+    endpoint: string,
+    body: Record<string, unknown>,
+    retries = 3
+  ): Promise<{ data: T; nextRowNumber?: number }> {
+    const url = `https://api.track.toggl.com/reports/api/v3/workspace/${workspaceId}${endpoint}`;
+    const response = await this.fetchWithRetry(
+      url,
+      {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify(body),
+      },
+      retries
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      if (response.status === 402) {
+        const retryAfterSeconds = parseQuotaResetSeconds(text);
+        throw new TogglAPIError({
+          status: response.status,
+          code: 'TOGGL_QUOTA_LIMIT',
+          message: `Toggl Reports API quota limit reached.${retryAfterSeconds !== undefined ? ` Quota resets in ${retryAfterSeconds} seconds.` : ''}`,
+          retryAfterSeconds,
+          tip: 'Wait for the Toggl quota window to reset, or use a narrower date range to reduce API usage.',
+        });
+      }
+
+      if (response.status >= 400 && response.status < 500) {
+        const isAuth = response.status === 401 || response.status === 403;
+        throw new TogglAPIError({
+          status: response.status,
+          code: isAuth ? 'AUTHENTICATION_FAILED' : 'REPORTS_API_CLIENT_ERROR',
+          message: isAuth
+            ? `Reports API authentication failed (${response.status}). Verify TOGGL_API_KEY is correct.`
+            : `Toggl Reports API rejected the request (${response.status}).`,
+          tip: isAuth
+            ? 'Regenerate or copy your Toggl Track API token from track.toggl.com/profile and restart the MCP server.'
+            : 'Check report arguments, workspace permissions, and uid access, then retry.',
+        });
+      }
+
+      throw new Error(`Toggl Reports API request failed (${response.status}).`);
+    }
+
+    const nextHeader = response.headers.get('X-Next-Row-Number');
+    const nextRowNumber = nextHeader ? Number.parseInt(nextHeader, 10) : undefined;
+
+    try {
+      return { data: (await response.json()) as T, nextRowNumber };
+    } catch (_error) {
+      return { data: {} as T, nextRowNumber };
+    }
+  }
+
+  async getTimeEntriesForUserAndDateRange(
+    workspaceId: number,
+    userId: number,
+    startDate: Date,
+    endDate: Date
+  ): Promise<TimeEntry[]> {
+    const inclusiveEnd = new Date(endDate);
+    inclusiveEnd.setDate(inclusiveEnd.getDate() - 1);
+
+    type ReportTimeEntry = {
+      id?: number;
+      seconds?: number;
+      start?: string;
+      stop?: string | null;
+    };
+    type ReportRow = {
+      user_id?: number;
+      project_id?: number | null;
+      task_id?: number | null;
+      billable?: boolean;
+      description?: string;
+      tag_ids?: number[] | null;
+      time_entries?: ReportTimeEntry[];
+    } & ReportTimeEntry;
+
+    const allEntries: TimeEntry[] = [];
+    let firstRowNumber = 1;
+
+    while (true) {
+      const { data: rows, nextRowNumber } = await this.reportsRequest<ReportRow[]>(
+        workspaceId,
+        '/search/time_entries',
+        {
+          user_ids: [userId],
+          start_date: toLocalYMD(startDate),
+          end_date: toLocalYMD(inclusiveEnd),
+          first_row_number: firstRowNumber,
+        }
+      );
+
+      const reportRows = Array.isArray(rows) ? rows : [];
+      for (const row of reportRows) {
+        const entries =
+          Array.isArray(row.time_entries) && row.time_entries.length > 0 ? row.time_entries : [row];
+
+        for (const entry of entries) {
+          if (
+            typeof entry.id !== 'number' ||
+            typeof entry.seconds !== 'number' ||
+            typeof entry.start !== 'string'
+          ) {
+            continue;
+          }
+
+          allEntries.push({
+            id: entry.id,
+            workspace_id: workspaceId,
+            project_id: row.project_id ?? undefined,
+            task_id: row.task_id ?? undefined,
+            billable: row.billable,
+            start: entry.start,
+            stop: entry.stop ?? undefined,
+            duration: entry.seconds,
+            description: row.description,
+            tag_ids: row.tag_ids ?? [],
+            tags: [],
+            user_id: row.user_id ?? userId,
+          });
+        }
+      }
+
+      if (!nextRowNumber || nextRowNumber <= firstRowNumber || reportRows.length === 0) break;
+      firstRowNumber = nextRowNumber;
+    }
+
+    return allEntries;
   }
 
   // Project methods
@@ -349,25 +522,6 @@ export class TogglAPI {
     const firstDayNextMonth = new Date(year, month + 1, 1);
 
     return this.getTimeEntriesForDateRange(firstDay, firstDayNextMonth);
-  }
-
-  // Reports API endpoints (if needed)
-  async getDetailedReport(workspaceId: number, params: any): Promise<any> {
-    // This would use the Reports API v3 if needed
-    // https://api.track.toggl.com/reports/api/v3/workspace/{workspace_id}/search/time_entries
-    const reportsUrl = `https://api.track.toggl.com/reports/api/v3/workspace/${workspaceId}/search/time_entries`;
-
-    const response = await fetch(reportsUrl, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify(params),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Reports API error: ${response.status}`);
-    }
-
-    return response.json();
   }
 
   async getTimeline(): Promise<TimelineEvent[]> {
