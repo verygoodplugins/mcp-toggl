@@ -238,6 +238,32 @@ export interface UpdateTimeEntryRequest {
   duration?: number;
 }
 
+export interface CreateProjectRequest {
+  name: string;
+  client_id?: number;
+  is_private?: boolean;
+  active?: boolean;
+  color?: string;
+  billable?: boolean;
+  auto_estimates?: boolean;
+  estimated_hours?: number;
+}
+
+export interface UpdateProjectRequest {
+  name?: string;
+  // null clears the client assignment (Toggl accepts null in the PUT body).
+  client_id?: number | null;
+  is_private?: boolean;
+  active?: boolean;
+  color?: string;
+  billable?: boolean;
+  auto_estimates?: boolean;
+  estimated_hours?: number;
+}
+
+// 'delete' removes the project's time entries; 'unassign' detaches them.
+export type ProjectDeleteMode = 'delete' | 'unassign';
+
 export interface TimelineEvent {
   id: number;
   start_time: number; // Unix timestamp in seconds

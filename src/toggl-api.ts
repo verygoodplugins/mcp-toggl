@@ -11,6 +11,9 @@ import type {
   TimeEntriesRequest,
   CreateTimeEntryRequest,
   UpdateTimeEntryRequest,
+  CreateProjectRequest,
+  UpdateProjectRequest,
+  ProjectDeleteMode,
   TimelineEvent,
 } from './types.js';
 
@@ -179,20 +182,63 @@ export class TogglAPI {
   }
 
   // Project methods
-  async getProjects(workspaceId: number): Promise<Project[]> {
-    return this.request<Project[]>('GET', `/workspaces/${workspaceId}/projects`);
+  async getProjects(workspaceId: number, active?: 'true' | 'false' | 'both'): Promise<Project[]> {
+    const query = active ? `?active=${active}` : '';
+    return this.request<Project[]>('GET', `/workspaces/${workspaceId}/projects${query}`);
   }
 
-  async getProject(projectId: number): Promise<Project> {
-    // First, we need to find which workspace this project belongs to
-    // This is a limitation of Toggl API v9 - no direct project endpoint
+  async getProject(projectId: number, workspaceId?: number): Promise<Project> {
+    if (workspaceId) {
+      return this.request<Project>('GET', `/workspaces/${workspaceId}/projects/${projectId}`);
+    }
+    // Fallback: try the direct endpoint per workspace until one matches.
     const workspaces = await this.getWorkspaces();
     for (const workspace of workspaces) {
-      const projects = await this.getProjects(workspace.id);
-      const project = projects.find((p) => p.id === projectId);
-      if (project) return project;
+      try {
+        return await this.request<Project>(
+          'GET',
+          `/workspaces/${workspace.id}/projects/${projectId}`
+        );
+      } catch (error) {
+        if (!(error instanceof TogglAPIError) || error.status !== 404) {
+          throw error;
+        }
+        continue;
+      }
     }
     throw new Error(`Project ${projectId} not found`);
+  }
+
+  async createProject(workspaceId: number, project: CreateProjectRequest): Promise<Project> {
+    return this.writeRequest<Project>('POST', `/workspaces/${workspaceId}/projects`, {
+      ...project,
+      active: project.active ?? true,
+      is_private: project.is_private ?? false,
+    });
+  }
+
+  async updateProject(
+    workspaceId: number,
+    projectId: number,
+    updates: UpdateProjectRequest
+  ): Promise<Project> {
+    return this.writeRequest<Project>(
+      'PUT',
+      `/workspaces/${workspaceId}/projects/${projectId}`,
+      updates
+    );
+  }
+
+  async deleteProject(
+    workspaceId: number,
+    projectId: number,
+    timeEntryDeletionMode?: ProjectDeleteMode
+  ): Promise<void> {
+    const query = timeEntryDeletionMode ? `?teDeletionMode=${timeEntryDeletionMode}` : '';
+    await this.writeRequest<void>(
+      'DELETE',
+      `/workspaces/${workspaceId}/projects/${projectId}${query}`
+    );
   }
 
   // Client methods

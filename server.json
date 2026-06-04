@@ -77,6 +77,18 @@
       "description": "List projects in a workspace"
     },
     {
+      "name": "toggl_create_project",
+      "description": "Create a project"
+    },
+    {
+      "name": "toggl_update_project",
+      "description": "Update a project"
+    },
+    {
+      "name": "toggl_delete_project",
+      "description": "Delete a project"
+    },
+    {
       "name": "toggl_list_clients",
       "description": "List clients in a workspace"
     },
