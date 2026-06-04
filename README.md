@@ -128,8 +128,16 @@ mcp-toggl --help
 | Tool                      | What it does                                                                        |
 | ------------------------- | ----------------------------------------------------------------------------------- |
 | `toggl_get_current_entry` | Returns the running timer, elapsed seconds, and hydrated project/workspace context. |
-| `toggl_start_timer`       | Starts a timer with description, optional project/task, and tags.                   |
+| `toggl_start_timer`       | Starts a timer with description, optional project/task, tags, and billable flag.    |
 | `toggl_stop_timer`        | Stops the currently running timer.                                                  |
+
+### Time Entry CRUD
+
+| Tool                      | What it does                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------- |
+| `toggl_create_time_entry` | Creates a completed time entry for retroactively logging past work.                         |
+| `toggl_update_time_entry` | Updates fields on an existing entry, including project, task, description, tags, and times. |
+| `toggl_delete_time_entry` | Deletes a time entry by ID.                                                                 |
 
 ### Lookups
 
@@ -139,6 +147,7 @@ mcp-toggl --help
 | `toggl_list_workspaces` | Lists all accessible workspaces.                                                 |
 | `toggl_list_projects`   | Lists projects for a workspace using cache-backed reads after first fetch.       |
 | `toggl_list_clients`    | Lists clients for a workspace using cache-backed reads after first fetch.        |
+| `toggl_list_tasks`      | Lists tasks for a project so entries can be assigned to a valid `task_id`.       |
 
 ### Cache Management
 

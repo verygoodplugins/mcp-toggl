@@ -41,6 +41,18 @@
       "description": "Stop the currently running timer"
     },
     {
+      "name": "toggl_create_time_entry",
+      "description": "Create a completed time entry"
+    },
+    {
+      "name": "toggl_update_time_entry",
+      "description": "Update an existing time entry"
+    },
+    {
+      "name": "toggl_delete_time_entry",
+      "description": "Delete a time entry"
+    },
+    {
       "name": "toggl_daily_report",
       "description": "Generate a daily report with project and workspace breakdowns"
     },
@@ -67,6 +79,10 @@
     {
       "name": "toggl_list_clients",
       "description": "List clients in a workspace"
+    },
+    {
+      "name": "toggl_list_tasks",
+      "description": "List tasks in a project"
     },
     {
       "name": "toggl_warm_cache",
