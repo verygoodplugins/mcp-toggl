@@ -1578,15 +1578,16 @@ export function createTogglServer(): Server {
           const updates: UpdateProjectRequest = {};
 
           if (args?.name !== undefined) {
-            updates.name = requiredNonEmptyStringArg(args, 'name', 'Project name is required').trim();
+            updates.name = requiredNonEmptyStringArg(
+              args,
+              'name',
+              'Project name is required'
+            ).trim();
           }
 
           if (args && 'client_id' in args) {
             const clientId = args.client_id;
-            if (
-              clientId !== null &&
-              (typeof clientId !== 'number' || !Number.isFinite(clientId))
-            ) {
+            if (clientId !== null && (typeof clientId !== 'number' || !Number.isFinite(clientId))) {
               invalidArgument('client_id must be a finite number or null');
             }
             updates.client_id = clientId;

@@ -137,6 +137,43 @@ describe('toggl api project CRUD', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('continues fallback project lookup after 404 project misses', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        response({
+          status: 200,
+          json: [
+            { id: 1, name: 'Workspace 1' },
+            { id: 2, name: 'Workspace 2' },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(response({ status: 404, text: 'not found' }))
+      .mockResolvedValueOnce(
+        response({ status: 200, json: { id: 50, workspace_id: 2, name: 'Web' } })
+      );
+
+    const api = new TogglAPI('token');
+    await expect(api.getProject(50)).resolves.toEqual({
+      id: 50,
+      workspace_id: 2,
+      name: 'Web',
+    });
+  });
+
+  it('preserves non-404 project lookup failures during workspace fallback', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response({ status: 200, json: [{ id: 1, name: 'Workspace 1' }] }))
+      .mockResolvedValueOnce(response({ status: 429, retryAfter: '60' }));
+
+    const api = new TogglAPI('token');
+    await expect(api.getProject(50)).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      status: 429,
+      retry_after_seconds: 60,
+    });
+  });
+
   it('POSTs to the workspace projects endpoint and applies active/is_private defaults', async () => {
     fetchMock.mockResolvedValue(
       response({

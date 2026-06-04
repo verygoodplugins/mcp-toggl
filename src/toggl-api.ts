@@ -182,10 +182,7 @@ export class TogglAPI {
   }
 
   // Project methods
-  async getProjects(
-    workspaceId: number,
-    active?: 'true' | 'false' | 'both'
-  ): Promise<Project[]> {
+  async getProjects(workspaceId: number, active?: 'true' | 'false' | 'both'): Promise<Project[]> {
     const query = active ? `?active=${active}` : '';
     return this.request<Project[]>('GET', `/workspaces/${workspaceId}/projects${query}`);
   }
@@ -202,7 +199,10 @@ export class TogglAPI {
           'GET',
           `/workspaces/${workspace.id}/projects/${projectId}`
         );
-      } catch {
+      } catch (error) {
+        if (!(error instanceof TogglAPIError) || error.status !== 404) {
+          throw error;
+        }
         continue;
       }
     }
@@ -235,7 +235,10 @@ export class TogglAPI {
     timeEntryDeletionMode?: ProjectDeleteMode
   ): Promise<void> {
     const query = timeEntryDeletionMode ? `?teDeletionMode=${timeEntryDeletionMode}` : '';
-    await this.writeRequest<void>('DELETE', `/workspaces/${workspaceId}/projects/${projectId}${query}`);
+    await this.writeRequest<void>(
+      'DELETE',
+      `/workspaces/${workspaceId}/projects/${projectId}${query}`
+    );
   }
 
   // Client methods

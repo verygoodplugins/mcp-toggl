@@ -158,6 +158,33 @@ describe('cache manager', () => {
     expect(cache.getStats().hits).toBeGreaterThan(statsAfterWarm.hits);
   });
 
+  it('invalidateWorkspaceProjects forces a refetch and clears single-project entries for one workspace', async () => {
+    const otherWorkspaceProject: Project = { id: 99, workspace_id: 2, name: 'Other Project' };
+    const api = {
+      ...createAPI(),
+      getProjects: vi.fn(async (workspaceId: number) =>
+        workspaceId === 1 ? [project] : [otherWorkspaceProject]
+      ),
+    };
+    const cache = new CacheManager(config);
+    cache.setAPI(api);
+
+    await cache.getProjects(1);
+    await cache.getProjects(2);
+    await cache.getProjects(1);
+    expect(api.getProjects).toHaveBeenCalledTimes(2);
+
+    cache.invalidateWorkspaceProjects(1);
+
+    const internalProjects = (cache as unknown as { projects: Map<number, unknown> }).projects;
+    expect(internalProjects.has(10)).toBe(false);
+    expect(internalProjects.has(99)).toBe(true);
+
+    await expect(cache.getProjects(1)).resolves.toEqual([project]);
+    await expect(cache.getProjects(2)).resolves.toEqual([otherWorkspaceProject]);
+    expect(api.getProjects).toHaveBeenCalledTimes(3);
+  });
+
   it('hydrates tags from the workspace tag collection without the single-tag endpoint', async () => {
     const api = createAPI();
     const cache = new CacheManager(config);
