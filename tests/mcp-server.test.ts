@@ -65,7 +65,9 @@ function installMockTogglApi() {
     if (url.endsWith('/workspaces/20')) return response({ json: workspace });
     if (url.endsWith('/workspaces/20/projects')) return response({ json: [project] });
     if (url.endsWith('/workspaces/20/projects/30/tasks')) return response({ json: [task] });
-    if (url.endsWith('/workspaces/20/clients')) return response({ json: [client] });
+    if (method === 'GET' && url.endsWith('/workspaces/20/clients')) {
+      return response({ json: [client] });
+    }
     if (url.endsWith('/workspaces/20/tags')) return response({ json: tags });
     if (url.includes('/me/time_entries/current')) return response({ json: null });
     if (url.includes('/me/time_entries')) return response({ json: [entry] });
@@ -112,6 +114,31 @@ function installMockTogglApi() {
       });
     }
     if (method === 'DELETE' && url.endsWith('/workspaces/20/time_entries/60')) {
+      return response({ json: {} });
+    }
+    if (method === 'POST' && url.endsWith('/workspaces/20/clients')) {
+      const body = JSON.parse(init?.body ?? '{}') as Record<string, unknown>;
+      return response({
+        json: {
+          ...client,
+          ...body,
+          id: 41,
+          workspace_id: 20,
+        },
+      });
+    }
+    if (method === 'PUT' && url.endsWith('/workspaces/20/clients/40')) {
+      const body = JSON.parse(init?.body ?? '{}') as Record<string, unknown>;
+      return response({
+        json: {
+          ...client,
+          ...body,
+          id: 40,
+          workspace_id: 20,
+        },
+      });
+    }
+    if (method === 'DELETE' && url.endsWith('/workspaces/20/clients/40')) {
       return response({ json: {} });
     }
 
@@ -171,7 +198,7 @@ describe('mcp server handlers', () => {
     }
   });
 
-  it('lists task and time-entry write tool schemas', async () => {
+  it('lists task, client, and time-entry write tool schemas', async () => {
     const { client } = await createClient();
 
     try {
@@ -183,6 +210,23 @@ describe('mcp server handlers', () => {
         idempotentHint: true,
       });
       expect(byName.get('toggl_list_tasks')?.inputSchema.required).toEqual(['project_id']);
+
+      expect(byName.get('toggl_create_client')?.annotations).toMatchObject({
+        readOnlyHint: false,
+        idempotentHint: false,
+      });
+      expect(byName.get('toggl_create_client')?.inputSchema.required).toEqual(['name']);
+      expect(byName.get('toggl_update_client')?.annotations).toMatchObject({
+        readOnlyHint: false,
+        idempotentHint: true,
+      });
+      expect(byName.get('toggl_update_client')?.inputSchema.required).toEqual([
+        'client_id',
+        'name',
+      ]);
+      expect(byName.get('toggl_delete_client')?.annotations).toMatchObject({
+        destructiveHint: true,
+      });
 
       expect(byName.get('toggl_create_time_entry')?.annotations).toMatchObject({
         readOnlyHint: false,
@@ -307,6 +351,46 @@ describe('mcp server handlers', () => {
         workspace_id: 20,
         count: 1,
         clients: [{ id: 40, name: 'Client' }],
+      });
+      await expect(
+        callTool(client, 'toggl_create_client', {
+          workspace_id: 20,
+          name: 'New Client',
+          notes: 'priority',
+          external_reference: 'crm-123',
+        })
+      ).resolves.toMatchObject({
+        success: true,
+        client: {
+          id: 41,
+          workspace_id: 20,
+          name: 'New Client',
+          notes: 'priority',
+          external_reference: 'crm-123',
+        },
+      });
+      await expect(
+        callTool(client, 'toggl_update_client', {
+          workspace_id: 20,
+          client_id: 40,
+          name: 'Renamed Client',
+          notes: 'updated',
+        })
+      ).resolves.toMatchObject({
+        success: true,
+        client: {
+          id: 40,
+          workspace_id: 20,
+          name: 'Renamed Client',
+          notes: 'updated',
+        },
+      });
+      await expect(
+        callTool(client, 'toggl_delete_client', { workspace_id: 20, client_id: 40 })
+      ).resolves.toMatchObject({
+        success: true,
+        workspace_id: 20,
+        client_id: 40,
       });
       await expect(
         callTool(client, 'toggl_list_tasks', { workspace_id: 20, project_id: 30 })
@@ -495,6 +579,42 @@ describe('mcp server handlers', () => {
         error: true,
         code: 'INVALID_ARGUMENT',
         message: 'project_id is required',
+      });
+      await expect(
+        callTool(client, 'toggl_create_client', { workspace_id: 20, name: ' ' })
+      ).resolves.toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        message: 'Client name is required',
+      });
+      await expect(
+        callTool(client, 'toggl_update_client', { workspace_id: 20, client_id: 40, name: ' ' })
+      ).resolves.toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        message: 'Client name is required (Toggl requires name on every update)',
+      });
+      await expect(
+        callTool(client, 'toggl_update_client', {
+          workspace_id: 20,
+          client_id: '40',
+          name: 'Client',
+        })
+      ).resolves.toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        message: 'Invalid argument: client_id must be a finite number',
+      });
+      await expect(
+        callTool(client, 'toggl_create_client', {
+          workspace_id: 20,
+          name: 'Client',
+          notes: 123,
+        })
+      ).resolves.toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        message: 'Invalid argument: notes must be a string',
       });
     } finally {
       await client.close();

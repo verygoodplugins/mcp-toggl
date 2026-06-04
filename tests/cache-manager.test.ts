@@ -158,6 +158,33 @@ describe('cache manager', () => {
     expect(cache.getStats().hits).toBeGreaterThan(statsAfterWarm.hits);
   });
 
+  it('invalidateWorkspaceClients forces a refetch and clears single-client entries for one workspace', async () => {
+    const otherWorkspaceClient: Client = { id: 99, workspace_id: 2, name: 'Other Client' };
+    const api = {
+      ...createAPI(),
+      getClients: vi.fn(async (workspaceId: number) =>
+        workspaceId === 1 ? [client] : [otherWorkspaceClient]
+      ),
+    };
+    const cache = new CacheManager(config);
+    cache.setAPI(api);
+
+    await cache.getClients(1);
+    await cache.getClients(2);
+    await cache.getClients(1);
+    expect(api.getClients).toHaveBeenCalledTimes(2);
+
+    cache.invalidateWorkspaceClients(1);
+
+    const internalClients = (cache as unknown as { clients: Map<number, unknown> }).clients;
+    expect(internalClients.has(20)).toBe(false);
+    expect(internalClients.has(99)).toBe(true);
+
+    await expect(cache.getClients(1)).resolves.toEqual([client]);
+    await expect(cache.getClients(2)).resolves.toEqual([otherWorkspaceClient]);
+    expect(api.getClients).toHaveBeenCalledTimes(3);
+  });
+
   it('hydrates tags from the workspace tag collection without the single-tag endpoint', async () => {
     const api = createAPI();
     const cache = new CacheManager(config);
