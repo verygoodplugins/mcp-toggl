@@ -52,6 +52,22 @@ export class TogglAPIError extends Error {
 
 const MAX_AUTO_RETRY_MS = 30_000;
 
+type TagResponse = Tag | Tag[] | { items?: Tag[] };
+
+function isTag(value: unknown): value is Tag {
+  if (!value || typeof value !== 'object') return false;
+  const maybeTag = value as Partial<Tag>;
+  return (
+    typeof maybeTag.id === 'number' &&
+    typeof maybeTag.workspace_id === 'number' &&
+    typeof maybeTag.name === 'string'
+  );
+}
+
+function isTagItemsResponse(value: unknown): value is { items?: Tag[] } {
+  return Boolean(value && typeof value === 'object' && 'items' in value);
+}
+
 export class TogglAPI {
   private baseUrl = 'https://api.track.toggl.com/api/v9';
   private timelineBaseUrl = 'https://track.toggl.com/api/v9';
@@ -164,6 +180,20 @@ export class TogglAPI {
     return this.request<T>(method, endpoint, body, 1);
   }
 
+  private tagFromResponse(response: TagResponse): Tag {
+    if (Array.isArray(response)) {
+      const [tag] = response;
+      if (isTag(tag)) return tag;
+    } else if (isTagItemsResponse(response) && Array.isArray(response.items)) {
+      const [tag] = response.items;
+      if (isTag(tag)) return tag;
+    } else if (isTag(response)) {
+      return response;
+    }
+
+    throw new Error('Toggl tag response did not include a tag');
+  }
+
   async getUser(_userId: number): Promise<User> {
     // Note: This might require admin permissions
     return this.request<User>('GET', `/me`);
@@ -230,11 +260,39 @@ export class TogglAPI {
 
   // Tag methods
   async getTags(workspaceId: number): Promise<Tag[]> {
-    return this.request<Tag[]>('GET', `/workspaces/${workspaceId}/tags`);
+    const response = await this.request<Tag[] | { items?: Tag[] }>(
+      'GET',
+      `/workspaces/${workspaceId}/tags`
+    );
+    return Array.isArray(response) ? response : (response.items ?? []);
   }
 
   async getTag(workspaceId: number, tagId: number): Promise<Tag> {
     return this.request<Tag>('GET', `/workspaces/${workspaceId}/tags/${tagId}`);
+  }
+
+  async createTag(workspaceId: number, name: string): Promise<Tag> {
+    const response = await this.writeRequest<TagResponse>(
+      'POST',
+      `/workspaces/${workspaceId}/tags`,
+      {
+        name,
+      }
+    );
+    return this.tagFromResponse(response);
+  }
+
+  async updateTag(workspaceId: number, tagId: number, name: string): Promise<Tag> {
+    const response = await this.writeRequest<TagResponse>(
+      'PUT',
+      `/workspaces/${workspaceId}/tags/${tagId}`,
+      { name }
+    );
+    return this.tagFromResponse(response);
+  }
+
+  async deleteTag(workspaceId: number, tagId: number): Promise<void> {
+    await this.writeRequest<void>('DELETE', `/workspaces/${workspaceId}/tags/${tagId}`);
   }
 
   // Time entry methods

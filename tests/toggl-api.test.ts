@@ -273,3 +273,109 @@ describe('toggl api time entry CRUD and tasks', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('toggl api tag CRUD', () => {
+  afterEach(() => {
+    fetchMock.mockReset();
+  });
+
+  it('accepts raw-array workspace tag listings', async () => {
+    fetchMock.mockResolvedValue(
+      response({
+        status: 200,
+        json: [{ id: 30, workspace_id: 1, name: 'automated' }],
+      })
+    );
+
+    const api = new TogglAPI('token');
+    await expect(api.getTags(1)).resolves.toEqual([{ id: 30, workspace_id: 1, name: 'automated' }]);
+  });
+
+  it('accepts documented items-envelope workspace tag listings', async () => {
+    fetchMock.mockResolvedValue(
+      response({
+        status: 200,
+        json: { items: [{ id: 30, workspace_id: 1, name: 'automated' }] },
+      })
+    );
+
+    const api = new TogglAPI('token');
+    await expect(api.getTags(1)).resolves.toEqual([{ id: 30, workspace_id: 1, name: 'automated' }]);
+  });
+
+  it('POSTs to the workspace tags endpoint and normalizes array responses', async () => {
+    fetchMock.mockResolvedValue(
+      response({
+        status: 200,
+        json: [{ id: 30, workspace_id: 1, name: 'automated' }],
+      })
+    );
+
+    const api = new TogglAPI('token');
+    const tag = await api.createTag(1, 'automated');
+
+    expect(tag).toEqual({ id: 30, workspace_id: 1, name: 'automated' });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://api.track.toggl.com/api/v9/workspaces/1/tags');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ name: 'automated' });
+  });
+
+  it('PUTs to the single-tag endpoint and normalizes items-envelope responses', async () => {
+    fetchMock.mockResolvedValue(
+      response({
+        status: 200,
+        json: { items: [{ id: 30, workspace_id: 1, name: 'manual' }] },
+      })
+    );
+
+    const api = new TogglAPI('token');
+    const tag = await api.updateTag(1, 30, 'manual');
+
+    expect(tag).toEqual({ id: 30, workspace_id: 1, name: 'manual' });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://api.track.toggl.com/api/v9/workspaces/1/tags/30');
+    expect(init.method).toBe('PUT');
+    expect(JSON.parse(init.body as string)).toEqual({ name: 'manual' });
+  });
+
+  it('fails tag writes when Toggl omits the created or updated tag', async () => {
+    fetchMock.mockResolvedValue(response({ status: 200, json: [] }));
+
+    const api = new TogglAPI('token');
+    await expect(api.createTag(1, 'automated')).rejects.toThrow(
+      'Toggl tag response did not include a tag'
+    );
+  });
+
+  it('DELETEs the single-tag endpoint without retrying empty successful responses', async () => {
+    fetchMock.mockResolvedValue(response({ status: 200, contentLength: '0', text: '' }));
+
+    const api = new TogglAPI('token');
+    await api.deleteTag(1, 30);
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://api.track.toggl.com/api/v9/workspaces/1/tags/30');
+    expect(init.method).toBe('DELETE');
+    expect(init.body).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry tag writes on ambiguous failures', async () => {
+    const api = new TogglAPI('token');
+
+    fetchMock.mockResolvedValue(response({ status: 500, text: 'server error' }));
+    await expect(api.createTag(1, 'automated')).rejects.toThrow(/500/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(response({ status: 500, text: 'server error' }));
+    await expect(api.updateTag(1, 30, 'manual')).rejects.toThrow(/500/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(response({ status: 500, text: 'server error' }));
+    await expect(api.deleteTag(1, 30)).rejects.toThrow(/500/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

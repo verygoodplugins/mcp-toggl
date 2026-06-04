@@ -66,7 +66,7 @@ function installMockTogglApi() {
     if (url.endsWith('/workspaces/20/projects')) return response({ json: [project] });
     if (url.endsWith('/workspaces/20/projects/30/tasks')) return response({ json: [task] });
     if (url.endsWith('/workspaces/20/clients')) return response({ json: [client] });
-    if (url.endsWith('/workspaces/20/tags')) return response({ json: tags });
+    if (method === 'GET' && url.endsWith('/workspaces/20/tags')) return response({ json: tags });
     if (url.includes('/me/time_entries/current')) return response({ json: null });
     if (url.includes('/me/time_entries')) return response({ json: [entry] });
     if (url.endsWith('/timeline')) {
@@ -112,6 +112,17 @@ function installMockTogglApi() {
       });
     }
     if (method === 'DELETE' && url.endsWith('/workspaces/20/time_entries/60')) {
+      return response({ json: {} });
+    }
+    if (method === 'POST' && url.endsWith('/workspaces/20/tags')) {
+      const body = JSON.parse(init?.body ?? '{}') as Record<string, unknown>;
+      return response({ json: [{ id: 51, workspace_id: 20, name: body.name }] });
+    }
+    if (method === 'PUT' && url.endsWith('/workspaces/20/tags/50')) {
+      const body = JSON.parse(init?.body ?? '{}') as Record<string, unknown>;
+      return response({ json: [{ id: 50, workspace_id: 20, name: body.name }] });
+    }
+    if (method === 'DELETE' && url.endsWith('/workspaces/20/tags/50')) {
       return response({ json: {} });
     }
 
@@ -193,6 +204,21 @@ describe('mcp server handlers', () => {
         idempotentHint: true,
       });
       expect(byName.get('toggl_delete_time_entry')?.annotations).toMatchObject({
+        destructiveHint: true,
+      });
+      expect(byName.get('toggl_list_tags')?.annotations).toMatchObject({
+        readOnlyHint: true,
+        idempotentHint: true,
+      });
+      expect(byName.get('toggl_create_tag')?.annotations).toMatchObject({
+        readOnlyHint: false,
+        idempotentHint: false,
+      });
+      expect(byName.get('toggl_update_tag')?.annotations).toMatchObject({
+        readOnlyHint: false,
+        idempotentHint: true,
+      });
+      expect(byName.get('toggl_delete_tag')?.annotations).toMatchObject({
         destructiveHint: true,
       });
 
@@ -317,6 +343,13 @@ describe('mcp server handlers', () => {
         tasks: [{ id: 45, name: 'Review' }],
       });
       await expect(
+        callTool(client, 'toggl_list_tags', { workspace_id: 20 })
+      ).resolves.toMatchObject({
+        workspace_id: 20,
+        count: 1,
+        tags: [{ id: 50, name: 'tag' }],
+      });
+      await expect(
         callTool(client, 'toggl_warm_cache', { workspace_id: 20 })
       ).resolves.toMatchObject({
         success: true,
@@ -399,6 +432,25 @@ describe('mcp server handlers', () => {
         success: true,
         workspace_id: 20,
         entry_id: 60,
+      });
+      await expect(
+        callTool(client, 'toggl_create_tag', { workspace_id: 20, name: 'new-tag' })
+      ).resolves.toMatchObject({
+        success: true,
+        tag: { id: 51, workspace_id: 20, name: 'new-tag' },
+      });
+      await expect(
+        callTool(client, 'toggl_update_tag', { workspace_id: 20, tag_id: 50, name: 'renamed' })
+      ).resolves.toMatchObject({
+        success: true,
+        tag: { id: 50, workspace_id: 20, name: 'renamed' },
+      });
+      await expect(
+        callTool(client, 'toggl_delete_tag', { workspace_id: 20, tag_id: 50 })
+      ).resolves.toMatchObject({
+        success: true,
+        workspace_id: 20,
+        tag_id: 50,
       });
       await expect(callTool(client, 'toggl_stop_timer')).resolves.toMatchObject({
         success: false,
@@ -495,6 +547,20 @@ describe('mcp server handlers', () => {
         error: true,
         code: 'INVALID_ARGUMENT',
         message: 'project_id is required',
+      });
+      await expect(
+        callTool(client, 'toggl_create_tag', { workspace_id: 20, name: ' ' })
+      ).resolves.toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        message: 'Tag name is required',
+      });
+      await expect(
+        callTool(client, 'toggl_update_tag', { workspace_id: 20, name: 'renamed' })
+      ).resolves.toMatchObject({
+        error: true,
+        code: 'INVALID_ARGUMENT',
+        message: 'tag_id is required',
       });
     } finally {
       await client.close();
