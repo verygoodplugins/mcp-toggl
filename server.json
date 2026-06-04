@@ -85,6 +85,22 @@
       "description": "List tasks in a project"
     },
     {
+      "name": "toggl_list_tags",
+      "description": "List tags in a workspace"
+    },
+    {
+      "name": "toggl_create_tag",
+      "description": "Create a tag"
+    },
+    {
+      "name": "toggl_update_tag",
+      "description": "Rename a tag"
+    },
+    {
+      "name": "toggl_delete_tag",
+      "description": "Delete a tag"
+    },
+    {
       "name": "toggl_warm_cache",
       "description": "Pre-fetch workspace, project, client, and tag data"
     },

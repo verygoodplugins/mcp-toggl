@@ -340,6 +340,15 @@ export class CacheManager {
     }
   }
 
+  invalidateWorkspaceTags(workspaceId: number): void {
+    this.tagsByWorkspace.delete(workspaceId);
+    this.tags.forEach((entry, tagId) => {
+      if (entry.data.workspace_id === workspaceId) {
+        this.tags.delete(tagId);
+      }
+    });
+  }
+
   // Warm cache by pre-fetching common entities
   async warmCache(workspaceId?: number): Promise<void> {
     // Log to stderr to avoid interfering with MCP stdio protocol
