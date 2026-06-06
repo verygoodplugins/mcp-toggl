@@ -5,7 +5,6 @@ dist/
 *.log
 .DS_Store
 .cursor/
-AGENTS.md
 .vscode/
 .idea/
 *.swp
