@@ -140,6 +140,14 @@ mcp-toggl --help
 | `toggl_list_projects` | Lists projects for a workspace using cache-backed reads after first fetch. |
 | `toggl_list_clients` | Lists clients for a workspace using cache-backed reads after first fetch. |
 
+### Project Management
+
+| Tool | What it does |
+| --- | --- |
+| `toggl_create_project` | Creates a project with optional client, color, billable flag, and estimated hours. |
+| `toggl_update_project` | Updates project fields. Set `active: false` to archive; pass `client_id: null` to detach the client. |
+| `toggl_delete_project` | Deletes a project. Optional `time_entry_deletion_mode: "delete" \| "unassign"` controls what happens to the project's time entries. |
+
 ### Cache Management
 
 | Tool | What it does |
