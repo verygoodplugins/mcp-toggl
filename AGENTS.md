@@ -189,7 +189,7 @@ Loaded from the environment or a local `.env` file via `dotenv` (`config({ quiet
 
 **Dates are inclusive at the tool boundary** but Toggl's API treats `end_date` as exclusive. `parseInclusiveEndDate` (`src/index.ts:30`) adds one day, and all ranges are computed in **local** time via `parseLocalYMD`/`toLocalYMD` (`src/utils.ts`). Date inputs use `YYYY-MM-DD`.
 
-**Caching** (`src/cache-manager.ts`): in-memory TTL maps for workspaces/projects/clients/tasks/tags; `hydrateTimeEntries` attaches project/workspace names; cache auto-warms on first tool use (`ensureCache` in `src/index.ts`).
+**Caching** (`src/cache-manager.ts`): in-memory TTL maps for workspaces/projects/clients/tasks/tags; `hydrateTimeEntries` attaches project/workspace names. On first tool use `ensureCache` (`src/index.ts:159`) pre-warms project/client/tag data **only when it can resolve a workspace** — `TOGGL_DEFAULT_WORKSPACE_ID`, or exactly one accessible workspace. With multiple workspaces and no default set, it marks the cache warmed without pre-fetching, so those entities are fetched lazily on the first tool that resolves a workspace.
 
 **Error handling** (`src/toggl-api.ts`): `request()` retries transient/5xx/network errors with backoff but not 4xx (`noRetry`). 429 honors `Retry-After` (auto-retries only if the delay ≤ 30s, else throws `RATE_LIMITED`); 402 surfaces `TOGGL_QUOTA_LIMIT` with reset seconds. Tool handlers catch everything and return a structured `errorPayload` (never throw across the MCP boundary).
 
