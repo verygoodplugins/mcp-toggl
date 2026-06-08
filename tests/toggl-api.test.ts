@@ -65,3 +65,49 @@ describe('toggl api errors', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('list endpoint pagination', () => {
+  afterEach(() => {
+    fetchMock.mockReset();
+  });
+
+  const page = (count: number, startId: number) =>
+    Array.from({ length: count }, (_, i) => ({ id: startId + i, name: `item-${startId + i}` }));
+
+  it('fetches every page of projects until a short page is returned', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response({ status: 200, json: page(200, 1) }))
+      .mockResolvedValueOnce(response({ status: 200, json: page(7, 1000) }));
+
+    const api = new TogglAPI('token');
+    const projects = await api.getProjects(2154504);
+
+    expect(projects).toHaveLength(207);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const urls = fetchMock.mock.calls.map((c) => c[0] as string);
+    expect(urls[0]).toContain('/workspaces/2154504/projects?per_page=200&page=1');
+    expect(urls[1]).toContain('/workspaces/2154504/projects?per_page=200&page=2');
+  });
+
+  it('makes a single request when the first page is shorter than the page size', async () => {
+    fetchMock.mockResolvedValueOnce(response({ status: 200, json: page(3, 1) }));
+
+    const api = new TogglAPI('token');
+    const clients = await api.getClients(2154504);
+
+    expect(clients).toHaveLength(3);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toContain('/workspaces/2154504/clients?per_page=200&page=1');
+  });
+
+  it('stops instead of looping when the endpoint ignores the page param', async () => {
+    // Same full page returned regardless of page number — must not loop forever.
+    fetchMock.mockResolvedValue(response({ status: 200, json: page(200, 1) }));
+
+    const api = new TogglAPI('token');
+    const projects = await api.getProjects(2154504);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(projects).toHaveLength(200);
+  });
+});
