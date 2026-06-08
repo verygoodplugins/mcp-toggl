@@ -222,6 +222,19 @@ async function resolveWorkspaceForTool(
   });
 }
 
+function reportDateRangeFromArgs(args: Record<string, unknown> | undefined): {
+  start: Date;
+  end: Date;
+} {
+  const range = localDateRangeFromArgs(args);
+  if (range?.start && range.end) return { start: range.start, end: range.end };
+  return getDateRange('week');
+}
+
+function readUid(args: Record<string, unknown> | undefined): number | undefined {
+  return typeof args?.uid === 'number' ? args.uid : undefined;
+}
+
 // Define tool schemas
 const tools: Tool[] = [
   // Health/authentication
@@ -362,6 +375,16 @@ const tools: Tool[] = [
           enum: ['json', 'text'],
           description: 'Output format (default: json)',
         },
+        uid: {
+          type: 'number',
+          description:
+            "Toggl user id to report on. When provided, uses Reports API v3 to fetch that workspace member's entries.",
+        },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID for uid report filtering. If omitted, workspace resolution uses the configured default or sole workspace.',
+        },
       },
     },
   },
@@ -384,6 +407,16 @@ const tools: Tool[] = [
           type: 'string',
           enum: ['json', 'text'],
           description: 'Output format (default: json)',
+        },
+        uid: {
+          type: 'number',
+          description:
+            "Toggl user id to report on. When provided, uses Reports API v3 to fetch that workspace member's entries.",
+        },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID for uid report filtering. If omitted, workspace resolution uses the configured default or sole workspace.',
         },
       },
     },
@@ -414,7 +447,13 @@ const tools: Tool[] = [
         },
         workspace_id: {
           type: 'number',
-          description: 'Filter by workspace ID',
+          description:
+            'Filter by workspace ID. Also used as the Reports API workspace when uid is provided.',
+        },
+        uid: {
+          type: 'number',
+          description:
+            "Toggl user id to report on. When provided, uses Reports API v3 to fetch that workspace member's entries.",
         },
       },
     },
@@ -442,6 +481,16 @@ const tools: Tool[] = [
         end_date: {
           type: 'string',
           description: 'End date (YYYY-MM-DD format, inclusive, local timezone)',
+        },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID for uid report filtering. If omitted, workspace resolution uses the configured default or sole workspace.',
+        },
+        uid: {
+          type: 'number',
+          description:
+            "Toggl user id to report on. When provided, uses Reports API v3 to fetch that workspace member's entries.",
         },
       },
     },
@@ -496,6 +545,26 @@ const tools: Tool[] = [
           type: 'number',
           description:
             'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
+        },
+      },
+    },
+  },
+  {
+    name: 'toggl_list_workspace_users',
+    description:
+      'List workspace members as privacy-safe uid, name, and active fields for per-user report filtering.',
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace.',
         },
       },
     },
@@ -837,7 +906,16 @@ export function createTogglServer(): Server {
           const nextDay = new Date(date);
           nextDay.setDate(nextDay.getDate() + 1);
 
-          const entries = await api.getTimeEntriesForDateRange(date, nextDay);
+          const uid = readUid(args);
+          const entries =
+            uid !== undefined
+              ? await api.getTimeEntriesForUserAndDateRange(
+                  await resolveWorkspaceForTool(args, 'generating a daily report'),
+                  uid,
+                  date,
+                  nextDay
+                )
+              : await api.getTimeEntriesForDateRange(date, nextDay);
           const hydrated = await cache.hydrateTimeEntries(entries);
 
           const report = generateDailyReport(toLocalYMD(date), hydrated);
@@ -867,9 +945,6 @@ export function createTogglServer(): Server {
           await ensureCache();
 
           const weekOffset = (args?.week_offset as number) || 0;
-          const entries = await api.getTimeEntriesForWeek(weekOffset);
-          const hydrated = await cache.hydrateTimeEntries(entries);
-
           // Calculate week boundaries in local time.
           const today = new Date();
           today.setHours(0, 0, 0, 0);
@@ -879,6 +954,20 @@ export function createTogglServer(): Server {
           monday.setDate(diff + weekOffset * 7);
           const sunday = new Date(monday);
           sunday.setDate(sunday.getDate() + 6);
+          const nextMonday = new Date(monday);
+          nextMonday.setDate(nextMonday.getDate() + 7);
+
+          const uid = readUid(args);
+          const entries =
+            uid !== undefined
+              ? await api.getTimeEntriesForUserAndDateRange(
+                  await resolveWorkspaceForTool(args, 'generating a weekly report'),
+                  uid,
+                  monday,
+                  nextMonday
+                )
+              : await api.getTimeEntriesForWeek(weekOffset);
+          const hydrated = await cache.hydrateTimeEntries(entries);
 
           const report = generateWeeklyReport(monday, sunday, hydrated);
 
@@ -906,21 +995,19 @@ export function createTogglServer(): Server {
         case 'toggl_project_summary': {
           await ensureCache();
 
-          let entries: TimeEntry[];
+          const range = reportDateRangeFromArgs(args);
+          const uid = readUid(args);
+          let entries =
+            uid !== undefined
+              ? await api.getTimeEntriesForUserAndDateRange(
+                  await resolveWorkspaceForTool(args, 'generating a project summary'),
+                  uid,
+                  range.start,
+                  range.end
+                )
+              : await api.getTimeEntriesForDateRange(range.start, range.end);
 
-          if (args?.period) {
-            const range = getDateRange(args.period as any);
-            entries = await api.getTimeEntriesForDateRange(range.start, range.end);
-          } else if (args?.start_date && args?.end_date) {
-            const start = parseLocalYMD(args.start_date as string);
-            const end = parseInclusiveEndDate(args.end_date as string);
-            entries = await api.getTimeEntriesForDateRange(start, end);
-          } else {
-            // Default to current week
-            entries = await api.getTimeEntriesForWeek(0);
-          }
-
-          if (args?.workspace_id) {
+          if (uid === undefined && args?.workspace_id) {
             entries = entries.filter((e) => e.workspace_id === args.workspace_id);
           }
 
@@ -956,19 +1043,17 @@ export function createTogglServer(): Server {
         case 'toggl_workspace_summary': {
           await ensureCache();
 
-          let entries: TimeEntry[];
-
-          if (args?.period) {
-            const range = getDateRange(args.period as any);
-            entries = await api.getTimeEntriesForDateRange(range.start, range.end);
-          } else if (args?.start_date && args?.end_date) {
-            const start = parseLocalYMD(args.start_date as string);
-            const end = parseInclusiveEndDate(args.end_date as string);
-            entries = await api.getTimeEntriesForDateRange(start, end);
-          } else {
-            // Default to current week
-            entries = await api.getTimeEntriesForWeek(0);
-          }
+          const range = reportDateRangeFromArgs(args);
+          const uid = readUid(args);
+          const entries =
+            uid !== undefined
+              ? await api.getTimeEntriesForUserAndDateRange(
+                  await resolveWorkspaceForTool(args, 'generating a workspace summary'),
+                  uid,
+                  range.start,
+                  range.end
+                )
+              : await api.getTimeEntriesForDateRange(range.start, range.end);
 
           const hydrated = await cache.hydrateTimeEntries(entries);
           const byWorkspace = groupEntriesByWorkspace(hydrated);
@@ -1074,6 +1159,29 @@ export function createTogglServer(): Server {
                       name: c.name,
                       archived: c.archived,
                     })),
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
+
+        case 'toggl_list_workspace_users': {
+          const workspaceId = await resolveWorkspaceForTool(args, 'listing workspace users');
+          const users = await api.getWorkspaceUsers(workspaceId);
+          const summaries = users.map((user) => TogglAPI.toWorkspaceMemberSummary(user));
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    workspace_id: workspaceId,
+                    count: summaries.length,
+                    users: summaries,
                   },
                   null,
                   2
