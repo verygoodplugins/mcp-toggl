@@ -62,9 +62,7 @@ describe('cache manager', () => {
     vi.setSystemTime(new Date('2026-05-01T10:00:00.002Z'));
     await cache.getWorkspace(2);
 
-    const workspaces = (
-      cache as unknown as { workspaces: Map<number, unknown> }
-    ).workspaces;
+    const workspaces = (cache as unknown as { workspaces: Map<number, unknown> }).workspaces;
     expect([...workspaces.keys()]).toEqual([1, 2]);
   });
 

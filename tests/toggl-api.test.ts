@@ -14,20 +14,54 @@ function response({
   text = '',
   json,
   retryAfter,
+  headers: extraHeaders = {},
 }: {
   status: number;
   text?: string;
   json?: unknown;
   retryAfter?: string;
+  headers?: Record<string, string | undefined>;
 }) {
+  const normalizedExtraHeaders = Object.fromEntries(
+    Object.entries(extraHeaders).map(([name, value]) => [name.toLowerCase(), value])
+  );
+  const allHeaders: Record<string, string | undefined> = {
+    'retry-after': retryAfter,
+    ...normalizedExtraHeaders,
+  };
+
   return {
     status,
     ok: status >= 200 && status < 300,
     headers: {
-      get: vi.fn((name: string) => (name.toLowerCase() === 'retry-after' ? retryAfter : null)),
+      get: vi.fn((name: string) => allHeaders[name.toLowerCase()] ?? null),
     },
     text: vi.fn(async () => text),
     json: vi.fn(async () => json),
+  };
+}
+
+const TEST_WORKSPACE_ID = 111;
+const TEST_USER_ID = 222;
+const TEST_PROJECT_ID = 333;
+
+function reportRow(overrides: Record<string, unknown> = {}) {
+  return {
+    user_id: TEST_USER_ID,
+    project_id: TEST_PROJECT_ID,
+    task_id: null,
+    billable: false,
+    description: 'test entry',
+    tag_ids: [],
+    time_entries: [
+      {
+        id: 1001,
+        seconds: 3600,
+        start: '2026-05-04T10:00:00+00:00',
+        stop: '2026-05-04T11:00:00+00:00',
+      },
+    ],
+    ...overrides,
   };
 }
 
@@ -63,5 +97,321 @@ describe('toggl api errors', () => {
       retry_after_seconds: 60,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('sanitizes auth failures into structured errors', async () => {
+    fetchMock.mockResolvedValue(
+      response({
+        status: 401,
+        text: 'bad token abc123',
+      })
+    );
+
+    const api = new TogglAPI('token');
+    await expect(api.getWorkspaces()).rejects.toMatchObject({
+      code: 'AUTHENTICATION_FAILED',
+      status: 401,
+      message:
+        'Authentication failed (401). Verify TOGGL_API_KEY is correct, has no leading/trailing spaces, and is the Toggl Track API token.',
+    });
+
+    await expect(api.getWorkspaces()).rejects.not.toMatchObject({
+      message: expect.stringContaining('abc123'),
+    });
+  });
+
+  it('retries 5xx server errors and eventually throws', async () => {
+    fetchMock.mockResolvedValue(response({ status: 500, text: 'Internal Server Error' }));
+
+    const api = new TogglAPI('token');
+    await expect(api.getWorkspaces()).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('getWorkspaceUsers', () => {
+  afterEach(() => {
+    fetchMock.mockReset();
+  });
+
+  it('fetches from the documented /users endpoint and returns the raw records', async () => {
+    fetchMock.mockResolvedValue(
+      response({
+        status: 200,
+        json: {
+          items: [
+            {
+              id: TEST_USER_ID,
+              fullname: 'Alice',
+              email: 'alice@example.com',
+              is_active: true,
+              inactive: false,
+              is_admin: false,
+              role: 'admin',
+            },
+            {
+              id: TEST_USER_ID + 1,
+              fullname: 'Bob',
+              email: 'bob@example.com',
+              is_active: true,
+              inactive: false,
+              is_admin: true,
+              role: 'admin',
+            },
+          ],
+        },
+      })
+    );
+
+    const api = new TogglAPI('token');
+    const users = await api.getWorkspaceUsers(TEST_WORKSPACE_ID);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/workspaces/${TEST_WORKSPACE_ID}/users`),
+      expect.any(Object)
+    );
+    expect(users).toHaveLength(2);
+    expect(users[0]).toMatchObject({ id: TEST_USER_ID, fullname: 'Alice' });
+  });
+});
+
+describe('toWorkspaceMemberSummary', () => {
+  it('maps id/fullname/is_active to uid/name/active', () => {
+    const summary = TogglAPI.toWorkspaceMemberSummary({
+      id: TEST_USER_ID,
+      fullname: 'Alice',
+      is_active: true,
+    });
+
+    expect(summary).toEqual({ uid: TEST_USER_ID, name: 'Alice', active: true });
+  });
+
+  it('exposes only uid/name/active and drops email, admin, role, and rates', () => {
+    const summary = TogglAPI.toWorkspaceMemberSummary({
+      id: TEST_USER_ID,
+      fullname: 'Alice',
+      is_active: true,
+      email: 'alice@example.com',
+      is_admin: true,
+      role: 'admin',
+      ...({ rate: 99, labor_cost: 50, invite_url: 'https://secret' } as Record<string, unknown>),
+    });
+
+    expect(Object.keys(summary).sort()).toEqual(['active', 'name', 'uid']);
+    expect(summary).not.toHaveProperty('email');
+    expect(summary).not.toHaveProperty('is_admin');
+    expect(summary).not.toHaveProperty('role');
+    expect(summary).not.toHaveProperty('rate');
+    expect(summary).not.toHaveProperty('labor_cost');
+  });
+
+  it('does not default active to true when neither is_active nor inactive is present', () => {
+    const summary = TogglAPI.toWorkspaceMemberSummary({
+      id: TEST_USER_ID,
+      fullname: 'Alice',
+    });
+
+    expect(summary.active).toBe(false);
+  });
+
+  it('throws when id is missing at runtime', () => {
+    expect(() =>
+      TogglAPI.toWorkspaceMemberSummary({
+        fullname: 'Alice',
+      } as unknown as { id: number; fullname: string })
+    ).toThrow('Toggl workspace user is missing a numeric id.');
+  });
+});
+
+describe('getTimeEntriesForUserAndDateRange', () => {
+  afterEach(() => {
+    fetchMock.mockReset();
+  });
+
+  it('converts exclusive end date to inclusive before calling the Reports API', async () => {
+    fetchMock.mockResolvedValue(response({ status: 200, json: [] }));
+
+    const api = new TogglAPI('token');
+    await api.getTimeEntriesForUserAndDateRange(
+      TEST_WORKSPACE_ID,
+      TEST_USER_ID,
+      new Date(2026, 4, 4),
+      new Date(2026, 4, 11)
+    );
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.start_date).toBe('2026-05-04');
+    expect(body.end_date).toBe('2026-05-10');
+  });
+
+  it('sends user_ids as an array containing the requested uid', async () => {
+    fetchMock.mockResolvedValue(response({ status: 200, json: [] }));
+
+    const api = new TogglAPI('token');
+    await api.getTimeEntriesForUserAndDateRange(
+      TEST_WORKSPACE_ID,
+      TEST_USER_ID,
+      new Date(2026, 4, 4),
+      new Date(2026, 4, 11)
+    );
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.user_ids).toEqual([TEST_USER_ID]);
+  });
+
+  it('flattens grouped report rows into individual TimeEntry objects', async () => {
+    fetchMock.mockResolvedValue(
+      response({
+        status: 200,
+        json: [
+          reportRow({ billable: false }),
+          reportRow({
+            billable: true,
+            time_entries: [
+              {
+                id: 1002,
+                seconds: 1800,
+                start: '2026-05-04T11:00:00+00:00',
+                stop: '2026-05-04T11:30:00+00:00',
+              },
+            ],
+          }),
+        ],
+      })
+    );
+
+    const api = new TogglAPI('token');
+    const entries = await api.getTimeEntriesForUserAndDateRange(
+      TEST_WORKSPACE_ID,
+      TEST_USER_ID,
+      new Date(2026, 4, 4),
+      new Date(2026, 4, 11)
+    );
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      id: 1001,
+      workspace_id: TEST_WORKSPACE_ID,
+      project_id: TEST_PROJECT_ID,
+      duration: 3600,
+      description: 'test entry',
+      user_id: TEST_USER_ID,
+      billable: false,
+    });
+    expect(entries[1]).toMatchObject({ id: 1002, duration: 1800, billable: true });
+  });
+
+  it('handles a flat row that carries entry fields directly', async () => {
+    fetchMock.mockResolvedValue(
+      response({
+        status: 200,
+        json: [
+          {
+            user_id: TEST_USER_ID,
+            project_id: TEST_PROJECT_ID,
+            task_id: null,
+            billable: true,
+            description: 'flat entry',
+            tag_ids: [],
+            id: 2001,
+            seconds: 1200,
+            start: '2026-05-04T09:00:00+00:00',
+            stop: '2026-05-04T09:20:00+00:00',
+          },
+        ],
+      })
+    );
+
+    const api = new TogglAPI('token');
+    const entries = await api.getTimeEntriesForUserAndDateRange(
+      TEST_WORKSPACE_ID,
+      TEST_USER_ID,
+      new Date(2026, 4, 4),
+      new Date(2026, 4, 11)
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: 2001,
+      workspace_id: TEST_WORKSPACE_ID,
+      project_id: TEST_PROJECT_ID,
+      duration: 1200,
+      description: 'flat entry',
+      user_id: TEST_USER_ID,
+      billable: true,
+    });
+  });
+
+  it('fetches multiple pages until X-Next-Row-Number header is absent', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        response({
+          status: 200,
+          json: [
+            reportRow({
+              time_entries: [
+                {
+                  id: 1,
+                  seconds: 100,
+                  start: '2026-05-04T10:00:00+12:00',
+                  stop: '2026-05-04T10:01:40+12:00',
+                },
+              ],
+            }),
+          ],
+          headers: { 'X-Next-Row-Number': '2' },
+        })
+      )
+      .mockResolvedValueOnce(
+        response({
+          status: 200,
+          json: [
+            reportRow({
+              time_entries: [
+                {
+                  id: 2,
+                  seconds: 200,
+                  start: '2026-05-05T10:00:00+12:00',
+                  stop: '2026-05-05T10:03:20+12:00',
+                },
+              ],
+            }),
+          ],
+        })
+      );
+
+    const api = new TogglAPI('token');
+    const entries = await api.getTimeEntriesForUserAndDateRange(
+      TEST_WORKSPACE_ID,
+      TEST_USER_ID,
+      new Date(2026, 4, 4),
+      new Date(2026, 4, 11)
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(entries.map((entry) => entry.id)).toEqual([1, 2]);
+    const secondBody = JSON.parse(fetchMock.mock.calls[1]![1].body as string);
+    expect(secondBody.first_row_number).toBe(2);
+  });
+
+  it('throws a quota error with a tip for 402 Reports API responses', async () => {
+    fetchMock.mockResolvedValue(
+      response({ status: 402, text: 'The quota will reset in 300 seconds.' })
+    );
+
+    const api = new TogglAPI('token');
+    await expect(
+      api.getTimeEntriesForUserAndDateRange(
+        TEST_WORKSPACE_ID,
+        TEST_USER_ID,
+        new Date(2026, 4, 4),
+        new Date(2026, 4, 11)
+      )
+    ).rejects.toMatchObject({
+      code: 'TOGGL_QUOTA_LIMIT',
+      status: 402,
+      retry_after_seconds: 300,
+      tip: expect.stringContaining('quota'),
+    });
   });
 });

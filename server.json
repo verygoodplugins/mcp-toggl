@@ -69,6 +69,10 @@
       "description": "List clients in a workspace"
     },
     {
+      "name": "toggl_list_workspace_users",
+      "description": "List workspace members (uid, name, active) for per-user report filtering"
+    },
+    {
       "name": "toggl_warm_cache",
       "description": "Pre-fetch workspace, project, client, and tag data"
     },

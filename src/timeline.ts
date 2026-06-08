@@ -6,6 +6,7 @@ interface TimelineArgs extends Record<string, unknown> {
   include_events?: unknown;
   limit?: unknown;
   redact_titles?: unknown;
+  title_mode?: unknown;
   period?: unknown;
   start_date?: unknown;
   end_date?: unknown;
@@ -26,6 +27,17 @@ export function timelineSecondsToHours(seconds: number): number {
   return Math.round((seconds / 3600) * 10000) / 10000;
 }
 
+function shouldRedactTitles(args: TimelineArgs | undefined): boolean {
+  if (args?.title_mode !== undefined) {
+    if (args.title_mode === 'raw') return false;
+    if (args.title_mode === 'redacted') return true;
+    throw new Error('title_mode must be "redacted" or "raw"');
+  }
+
+  if (typeof args?.redact_titles === 'boolean') return args.redact_titles;
+  return true;
+}
+
 export function buildTimelineResponse(
   allEvents: TimelineEvent[],
   args: TimelineArgs | undefined,
@@ -36,7 +48,7 @@ export function buildTimelineResponse(
   const endTs = range?.end ? range.end.getTime() / 1000 : null;
   const appFilter = typeof args?.app === 'string' ? args.app.toLowerCase() : null;
   const includeEvents = args?.include_events !== false;
-  const redactTitles = args?.redact_titles === true;
+  const redactTitles = shouldRedactTitles(args);
   const rawLimit = typeof args?.limit === 'number' ? args.limit : 50;
   const limit = Math.max(1, Math.min(Math.floor(rawLimit), 1000));
 
