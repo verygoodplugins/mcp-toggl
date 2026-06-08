@@ -100,9 +100,9 @@ export interface User {
 // Documented Toggl v9 GET /workspaces/{id}/users response shape.
 // The tool layer exposes only WorkspaceMemberSummary to avoid leaking private fields.
 export interface WorkspaceUser {
-  id?: number;
+  id: number;
   email?: string;
-  fullname?: string;
+  fullname: string;
   is_active?: boolean;
   inactive?: boolean;
   is_admin?: boolean;

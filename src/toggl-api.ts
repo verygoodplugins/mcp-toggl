@@ -196,10 +196,21 @@ export class TogglAPI {
   }
 
   static toWorkspaceMemberSummary(raw: WorkspaceUser): WorkspaceMemberSummary {
+    if (typeof raw.id !== 'number') {
+      throw new Error('Toggl workspace user is missing a numeric id.');
+    }
+
+    const active =
+      typeof raw.is_active === 'boolean'
+        ? raw.is_active
+        : typeof raw.inactive === 'boolean'
+          ? !raw.inactive
+          : false;
+
     return {
-      uid: raw.id as number,
-      name: raw.fullname ?? '',
-      active: raw.is_active ?? !raw.inactive,
+      uid: raw.id,
+      name: raw.fullname,
+      active,
     };
   }
 

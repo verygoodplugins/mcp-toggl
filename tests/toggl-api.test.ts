@@ -22,9 +22,12 @@ function response({
   retryAfter?: string;
   headers?: Record<string, string | undefined>;
 }) {
+  const normalizedExtraHeaders = Object.fromEntries(
+    Object.entries(extraHeaders).map(([name, value]) => [name.toLowerCase(), value])
+  );
   const allHeaders: Record<string, string | undefined> = {
     'retry-after': retryAfter,
-    ...extraHeaders,
+    ...normalizedExtraHeaders,
   };
 
   return {
@@ -201,6 +204,23 @@ describe('toWorkspaceMemberSummary', () => {
     expect(summary).not.toHaveProperty('rate');
     expect(summary).not.toHaveProperty('labor_cost');
   });
+
+  it('does not default active to true when neither is_active nor inactive is present', () => {
+    const summary = TogglAPI.toWorkspaceMemberSummary({
+      id: TEST_USER_ID,
+      fullname: 'Alice',
+    });
+
+    expect(summary.active).toBe(false);
+  });
+
+  it('throws when id is missing at runtime', () => {
+    expect(() =>
+      TogglAPI.toWorkspaceMemberSummary({
+        fullname: 'Alice',
+      } as unknown as { id: number; fullname: string })
+    ).toThrow('Toggl workspace user is missing a numeric id.');
+  });
 });
 
 describe('getTimeEntriesForUserAndDateRange', () => {
@@ -339,7 +359,7 @@ describe('getTimeEntriesForUserAndDateRange', () => {
               ],
             }),
           ],
-          headers: { 'x-next-row-number': '2' },
+          headers: { 'X-Next-Row-Number': '2' },
         })
       )
       .mockResolvedValueOnce(
