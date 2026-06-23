@@ -116,7 +116,7 @@ export class TogglAPI {
           const isAuth = response.status === 401 || response.status === 403;
           const message = isAuth
             ? `Authentication failed (${response.status}). ` +
-              `Verify TOGGL_API_KEY is correct, has no leading/trailing spaces, and is the Toggl Track API token. ` +
+              `Verify TOGGL_API_TOKEN is correct, has no leading/trailing spaces, and is the Toggl Track API token. ` +
               `Server response: ${text}`
             : `Toggl API error (${response.status}): ${text}`;
           const err = new Error(message);
@@ -437,7 +437,7 @@ export class TogglAPI {
 
           const isAuth = response.status === 401 || response.status === 403;
           const message = isAuth
-            ? `Timeline authentication failed (${response.status}). Verify TOGGL_API_KEY is correct. Server response: ${text}`
+            ? `Timeline authentication failed (${response.status}). Verify TOGGL_API_TOKEN is correct. Server response: ${text}`
             : `Timeline API error (${response.status}): ${text}`;
           const err = new Error(message);
           if (response.status >= 400 && response.status < 500) {
