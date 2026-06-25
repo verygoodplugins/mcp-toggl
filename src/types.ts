@@ -238,6 +238,19 @@ export interface UpdateTimeEntryRequest {
   duration?: number;
 }
 
+export interface CreateClientRequest {
+  name: string;
+  notes?: string;
+  external_reference?: string;
+}
+
+export interface UpdateClientRequest {
+  // Required by Toggl on PUT.
+  name: string;
+  notes?: string;
+  external_reference?: string;
+}
+
 export interface TimelineEvent {
   id: number;
   start_time: number; // Unix timestamp in seconds
