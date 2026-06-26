@@ -11,7 +11,10 @@ import type {
   TimeEntriesRequest,
   CreateTimeEntryRequest,
   UpdateTimeEntryRequest,
+  CreateClientRequest,
+  UpdateClientRequest,
   TimelineEvent,
+  JsonValue,
 } from './types.js';
 
 export class TimelineNotEnabledError extends Error {
@@ -52,6 +55,17 @@ export class TogglAPIError extends Error {
 
 const MAX_AUTO_RETRY_MS = 30_000;
 
+type ReportRequestParams = Record<string, JsonValue | undefined>;
+
+function hasNoRetry(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'noRetry' in error &&
+    Boolean((error as { noRetry?: unknown }).noRetry)
+  );
+}
+
 export class TogglAPI {
   private baseUrl = 'https://api.track.toggl.com/api/v9';
   private timelineBaseUrl = 'https://track.toggl.com/api/v9';
@@ -69,7 +83,7 @@ export class TogglAPI {
   }
 
   // Generic API request method
-  private async request<T>(method: string, endpoint: string, body?: any, retries = 3): Promise<T> {
+  private async request<T>(method: string, endpoint: string, body?: unknown, retries = 3): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
 
     for (let i = 0; i < retries; i++) {
@@ -145,8 +159,8 @@ export class TogglAPI {
         }
 
         return JSON.parse(responseText) as T;
-      } catch (error: any) {
-        if (error?.noRetry || i === retries - 1) throw error;
+      } catch (error: unknown) {
+        if (hasNoRetry(error) || i === retries - 1) throw error;
         // Exponential backoff for transient/network errors
         await new Promise((resolve) => setTimeout(resolve, (i + 1) * 1000));
       }
@@ -198,6 +212,26 @@ export class TogglAPI {
   // Client methods
   async getClients(workspaceId: number): Promise<Client[]> {
     return this.request<Client[]>('GET', `/workspaces/${workspaceId}/clients`);
+  }
+
+  async createClient(workspaceId: number, client: CreateClientRequest): Promise<Client> {
+    return this.writeRequest<Client>('POST', `/workspaces/${workspaceId}/clients`, client);
+  }
+
+  async updateClient(
+    workspaceId: number,
+    clientId: number,
+    updates: UpdateClientRequest
+  ): Promise<Client> {
+    return this.writeRequest<Client>(
+      'PUT',
+      `/workspaces/${workspaceId}/clients/${clientId}`,
+      updates
+    );
+  }
+
+  async deleteClient(workspaceId: number, clientId: number): Promise<void> {
+    await this.writeRequest<void>('DELETE', `/workspaces/${workspaceId}/clients/${clientId}`);
   }
 
   async getClient(clientId: number): Promise<Client> {
@@ -370,7 +404,7 @@ export class TogglAPI {
   }
 
   // Reports API endpoints (if needed)
-  async getDetailedReport(workspaceId: number, params: any): Promise<any> {
+  async getDetailedReport(workspaceId: number, params: ReportRequestParams): Promise<unknown> {
     // This would use the Reports API v3 if needed
     // https://api.track.toggl.com/reports/api/v3/workspace/{workspace_id}/search/time_entries
     const reportsUrl = `https://api.track.toggl.com/reports/api/v3/workspace/${workspaceId}/search/time_entries`;
@@ -448,10 +482,10 @@ export class TogglAPI {
         }
 
         return data.filter(isTimelineEvent);
-      } catch (error: any) {
+      } catch (error: unknown) {
         if (
           error instanceof TimelineNotEnabledError ||
-          error?.noRetry ||
+          hasNoRetry(error) ||
           attempt === maxRetries - 1
         ) {
           throw error;

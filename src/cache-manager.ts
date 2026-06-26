@@ -12,6 +12,19 @@ import type {
   CacheConfig,
 } from './types.js';
 
+interface CacheAPI {
+  getWorkspace(id: number): Promise<Workspace>;
+  getWorkspaces(): Promise<Workspace[]>;
+  getProject(id: number): Promise<Project>;
+  getProjects(workspaceId: number): Promise<Project[]>;
+  getClient(id: number): Promise<Client>;
+  getClients(workspaceId: number): Promise<Client[]>;
+  getTask(workspaceId: number, projectId: number, taskId: number): Promise<Task>;
+  getTasks(workspaceId: number, projectId: number): Promise<Task[]>;
+  getUser(id: number): Promise<User>;
+  getTags(workspaceId: number): Promise<Tag[]>;
+}
+
 export class CacheManager {
   private workspaces: Map<number, CacheEntry<Workspace>> = new Map();
   private projects: Map<number, CacheEntry<Project>> = new Map();
@@ -32,14 +45,14 @@ export class CacheManager {
   };
 
   private config: CacheConfig;
-  private api: any; // Will be set after API client is created
+  private api: CacheAPI | null = null; // Will be set after API client is created
 
   constructor(config: CacheConfig) {
     this.config = config;
   }
 
-  setAPI(api: any): void {
-    this.api = api;
+  setAPI(api: unknown): void {
+    this.api = api as CacheAPI;
   }
 
   // Check if cache entry is still valid
@@ -248,6 +261,15 @@ export class CacheManager {
       console.error(`Failed to fetch clients for workspace ${workspaceId}:`, error);
       return [];
     }
+  }
+
+  invalidateWorkspaceClients(workspaceId: number): void {
+    this.clientsByWorkspace.delete(workspaceId);
+    this.clients.forEach((entry, clientId) => {
+      if (entry.data.workspace_id === workspaceId) {
+        this.clients.delete(clientId);
+      }
+    });
   }
 
   // Task methods
