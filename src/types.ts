@@ -4,6 +4,9 @@ export interface TogglConfig {
   defaultWorkspaceId?: number;
 }
 
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+
 export interface CacheConfig {
   ttl: number; // Time-to-live in milliseconds
   maxSize: number; // Maximum number of cached entities
@@ -52,8 +55,8 @@ export interface Project {
   rate_last_updated?: string;
   currency?: string;
   recurring?: boolean;
-  recurring_parameters?: any;
-  current_period?: any;
+  recurring_parameters?: JsonValue;
+  current_period?: JsonValue;
   fixed_fee?: number;
   actual_hours?: number;
   wid?: number;
@@ -292,11 +295,11 @@ export interface TogglError {
   code: string;
   message: string;
   tip?: string;
-  details?: any;
+  details?: unknown;
 }
 
 // Tool response types
-export interface ToolResponse<T = any> {
+export interface ToolResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: TogglError;
