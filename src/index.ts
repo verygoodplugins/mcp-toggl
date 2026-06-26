@@ -28,14 +28,17 @@ import {
   toLocalYMD,
   parseLocalYMD,
   localDateRangeFromArgs,
+  isDatePeriod,
 } from './utils.js';
 import type {
   CacheConfig,
   CreateClientRequest,
+  ProjectSummary,
   TimelineEvent,
   TimeEntry,
   UpdateClientRequest,
   UpdateTimeEntryRequest,
+  WorkspaceSummary,
 } from './types.js';
 
 function parseInclusiveEndDate(value: string): Date {
@@ -57,6 +60,15 @@ function jsonResponse(data: unknown) {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'An error occurred';
+}
+
+function dateRangeFromPeriod(period: unknown) {
+  if (!isDatePeriod(period)) {
+    throw new Error(
+      `Invalid period: ${String(period)}. Must be one of: today, yesterday, week, lastWeek, month, lastMonth`
+    );
+  }
+  return getDateRange(period);
 }
 
 function isUserInputError(error: unknown): error is Error {
@@ -1005,9 +1017,9 @@ export function createTogglServer(): Server {
                   {
                     authenticated: true,
                     user: {
-                      id: (me as any).id,
-                      email: maskEmail((me as any).email),
-                      fullname: (me as any).fullname,
+                      id: me.id,
+                      email: maskEmail(me.email),
+                      fullname: me.fullname,
                     },
                     workspaces: workspaces.map((w) => ({ id: w.id, name: w.name })),
                   },
@@ -1025,8 +1037,8 @@ export function createTogglServer(): Server {
 
           let entries: TimeEntry[];
 
-          if (args?.period) {
-            const range = getDateRange(args.period as any);
+          if (args?.period !== undefined) {
+            const range = dateRangeFromPeriod(args.period);
             entries = await api.getTimeEntriesForDateRange(range.start, range.end);
           } else if (args?.start_date || args?.end_date) {
             const start = args?.start_date ? parseLocalYMD(args.start_date as string) : new Date();
@@ -1354,8 +1366,8 @@ export function createTogglServer(): Server {
 
           let entries: TimeEntry[];
 
-          if (args?.period) {
-            const range = getDateRange(args.period as any);
+          if (args?.period !== undefined) {
+            const range = dateRangeFromPeriod(args.period);
             entries = await api.getTimeEntriesForDateRange(range.start, range.end);
           } else if (args?.start_date && args?.end_date) {
             const start = parseLocalYMD(args.start_date as string);
@@ -1373,7 +1385,7 @@ export function createTogglServer(): Server {
           const hydrated = await cache.hydrateTimeEntries(entries);
           const byProject = groupEntriesByProject(hydrated);
 
-          const summaries: any[] = [];
+          const summaries: ProjectSummary[] = [];
           byProject.forEach((projectEntries, projectName) => {
             summaries.push(generateProjectSummary(projectName, projectEntries));
           });
@@ -1404,8 +1416,8 @@ export function createTogglServer(): Server {
 
           let entries: TimeEntry[];
 
-          if (args?.period) {
-            const range = getDateRange(args.period as any);
+          if (args?.period !== undefined) {
+            const range = dateRangeFromPeriod(args.period);
             entries = await api.getTimeEntriesForDateRange(range.start, range.end);
           } else if (args?.start_date && args?.end_date) {
             const start = parseLocalYMD(args.start_date as string);
@@ -1419,7 +1431,7 @@ export function createTogglServer(): Server {
           const hydrated = await cache.hydrateTimeEntries(entries);
           const byWorkspace = groupEntriesByWorkspace(hydrated);
 
-          const summaries: any[] = [];
+          const summaries: WorkspaceSummary[] = [];
           byWorkspace.forEach((wsEntries, wsName) => {
             const wsId = wsEntries[0]?.workspace_id || 0;
             summaries.push(generateWorkspaceSummary(wsName, wsId, wsEntries));

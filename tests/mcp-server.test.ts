@@ -616,6 +616,17 @@ describe('mcp server handlers', () => {
         code: 'INVALID_ARGUMENT',
         message: 'Invalid argument: notes must be a string',
       });
+      for (const toolName of [
+        'toggl_get_time_entries',
+        'toggl_project_summary',
+        'toggl_workspace_summary',
+      ]) {
+        await expect(callTool(client, toolName, { period: '' })).resolves.toMatchObject({
+          error: true,
+          code: 'INVALID_ARGUMENT',
+          message: 'Invalid period: . Must be one of: today, yesterday, week, lastWeek, month, lastMonth',
+        });
+      }
     } finally {
       await client.close();
     }
