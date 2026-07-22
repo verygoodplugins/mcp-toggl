@@ -15,6 +15,7 @@
     "start": "node dist/index.js",
     "setup": "node scripts/setup.js",
     "test": "vitest run",
+    "test:live": "node scripts/live-smoke-test.js",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src/ tests/",
     "format": "prettier --write src/**/*.ts",
@@ -47,6 +48,10 @@
   },
   "files": [
     "dist/",
+    "config/project-aliases.example.json",
+    ".mcp.json.example",
+    "claude_desktop_config.example.json",
+    "SETUP.md",
     "docs/images/*.svg",
     "README.md",
     "LICENSE"
