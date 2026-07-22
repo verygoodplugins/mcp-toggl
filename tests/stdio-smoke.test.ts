@@ -93,4 +93,41 @@ describe.skipIf(!existsSync(entryPoint))('stdio smoke checks', () => {
       await client.close();
     }
   });
+
+  it('exposes toggl_update_time_entry schema and reaches the Toggl API', async () => {
+    const client = new Client({ name: 'mcp-toggl-test', version: '1.0.0' });
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [entryPoint],
+      env: {
+        ...process.env,
+        TOGGL_API_KEY: 'dummy-token',
+        TOGGL_API_TOKEN: '',
+        TOGGL_TOKEN: '',
+      },
+    });
+
+    await client.connect(transport);
+
+    try {
+      const tools = await client.listTools();
+      const updateTool = tools.tools.find((tool) => tool.name === 'toggl_update_time_entry');
+
+      expect(updateTool).toBeDefined();
+      expect(updateTool?.inputSchema.required).toContain('time_entry_id');
+
+      const result = await client.callTool({
+        name: 'toggl_update_time_entry',
+        arguments: { time_entry_id: 123, workspace_id: 456, description: 'test' },
+      });
+      const payload = JSON.parse(result.content?.[0]?.text ?? '{}') as Record<string, unknown>;
+
+      // Dummy token means Toggl rejects the request, but it must reach the
+      // real handler (auth error) rather than falling through to "Unknown tool".
+      expect(payload.error).toBe(true);
+      expect(payload.message).not.toContain('Unknown tool');
+    } finally {
+      await client.close();
+    }
+  });
 });
