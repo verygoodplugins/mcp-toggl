@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_PARENT_WATCHDOG_MS,
+  installStdioLifecycle,
   parseWatchdogIntervalMs,
   startParentWatchdog,
 } from '../src/lifecycle.js';
@@ -31,5 +32,30 @@ describe('startParentWatchdog', () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(onDead).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
+  });
+});
+
+describe('installStdioLifecycle soft stdin EOF', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('does not close transport or exit on stdin end/close', () => {
+    const transport = { close: vi.fn() };
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+
+    installStdioLifecycle({
+      transport,
+      parentPid: process.ppid,
+      envName: 'TOGGL_PARENT_WATCHDOG_MS',
+    });
+
+    process.stdin.emit('end');
+    process.stdin.emit('close');
+
+    expect(transport.close).not.toHaveBeenCalled();
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 });
