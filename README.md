@@ -128,8 +128,16 @@ mcp-toggl --help
 | Tool | What it does |
 | --- | --- |
 | `toggl_get_current_entry` | Returns the running timer, elapsed seconds, and hydrated project/workspace context. |
-| `toggl_start_timer` | Starts a timer with description, optional project/task, and tags. |
+| `toggl_start_timer` | Starts a timer with description, optional project/task, tags, and billable flag. |
 | `toggl_stop_timer` | Stops the currently running timer. |
+
+### Time Entry CRUD
+
+| Tool | What it does |
+| --- | --- |
+| `toggl_create_time_entry` | Creates a completed time entry for retroactively logging past work. |
+| `toggl_update_time_entry` | Updates fields on an existing entry (project, task, description, tags, billable, start/stop, duration). |
+| `toggl_delete_time_entry` | Deletes a time entry by ID. |
 
 ### Lookups
 
