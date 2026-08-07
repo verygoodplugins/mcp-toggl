@@ -340,6 +340,17 @@ export class CacheManager {
     }
   }
 
+  // Drop cached tags for a workspace so the next read refetches.
+  // Use after createTag/updateTag/deleteTag to keep tag listings consistent.
+  invalidateWorkspaceTags(workspaceId: number): void {
+    this.tagsByWorkspace.delete(workspaceId);
+    this.tags.forEach((entry, tagId) => {
+      if (entry.data.workspace_id === workspaceId) {
+        this.tags.delete(tagId);
+      }
+    });
+  }
+
   // Warm cache by pre-fetching common entities
   async warmCache(workspaceId?: number): Promise<void> {
     // Log to stderr to avoid interfering with MCP stdio protocol
