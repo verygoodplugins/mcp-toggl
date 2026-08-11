@@ -89,7 +89,7 @@ Add this to `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "command": "npx",
       "args": ["-y", "@verygoodplugins/mcp-toggl@latest"],
       "env": {
-        "TOGGL_API_KEY": "your_api_key_here",
+        "TOGGL_API_TOKEN": "your_api_token_here",
         "TOGGL_DEFAULT_WORKSPACE_ID": "123456"
       }
     }
@@ -130,6 +130,7 @@ mcp-toggl --help
 | `toggl_get_current_entry` | Returns the running timer, elapsed seconds, and hydrated project/workspace context. |
 | `toggl_start_timer` | Starts a timer with description, optional project/task, and tags. |
 | `toggl_stop_timer` | Stops the currently running timer. |
+| `toggl_create_time_entry` | Creates a completed entry with description, duration, and optional project ID or alias. |
 
 ### Lookups
 
@@ -138,6 +139,7 @@ mcp-toggl --help
 | `toggl_check_auth` | Verifies token access and lists available workspaces without exposing the token. |
 | `toggl_list_workspaces` | Lists all accessible workspaces. |
 | `toggl_list_projects` | Lists projects for a workspace using cache-backed reads after first fetch. |
+| `toggl_list_project_aliases` | Lists short aliases loaded from `config/project-aliases.json`. |
 | `toggl_list_clients` | Lists clients for a workspace using cache-backed reads after first fetch. |
 
 ### Cache Management
@@ -192,13 +194,23 @@ When in doubt, use `include_events: false`.
 
 | Env var | Required | Default | Notes |
 | --- | --- | --- | --- |
-| `TOGGL_API_KEY` | Yes | - | Preferred env var for your Toggl API token. |
-| `TOGGL_API_TOKEN` | No | - | Supported alias for backwards compatibility. `TOGGL_API_KEY` is preferred. |
-| `TOGGL_TOKEN` | No | - | Supported alias for backwards compatibility. `TOGGL_API_KEY` is preferred. |
+| `TOGGL_API_TOKEN` | Yes | - | Preferred env var for your Toggl API token. |
+| `TOGGL_API_KEY` | No | - | Supported alias for backwards compatibility. |
+| `TOGGL_TOKEN` | No | - | Supported alias for backwards compatibility. |
 | `TOGGL_DEFAULT_WORKSPACE_ID` | No | - | Used when a tool requires a workspace and none is passed. |
+| `TOGGL_PROJECT_ALIASES_FILE` | No | `config/project-aliases.json` | JSON object mapping aliases such as `wotw` to Toggl project IDs. |
 | `TOGGL_CACHE_TTL` | No | `3600000` | Cache TTL in milliseconds. Default is 1 hour. |
 | `TOGGL_CACHE_SIZE` | No | `1000` | Maximum cached entity budget. |
 | `TOGGL_BATCH_SIZE` | No | `100` | Batch size used by API pagination helpers. |
+
+Project aliases are local configuration. Copy the tracked example and replace its sample IDs:
+
+```bash
+cp config/project-aliases.example.json config/project-aliases.json
+```
+
+`config/project-aliases.json` is gitignored. Set `TOGGL_PROJECT_ALIASES_FILE` when the alias file
+lives elsewhere.
 
 ## Caveats
 

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "toggl": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/mcp-toggl/dist/index.js"
+      ],
+      "env": {
+        "TOGGL_API_TOKEN": "your_api_token_here",
+        "TOGGL_PROJECT_ALIASES_FILE": "/absolute/path/to/mcp-toggl/config/project-aliases.json"
+      }
+    }
+  }
+}
