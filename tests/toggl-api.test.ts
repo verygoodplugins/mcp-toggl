@@ -111,3 +111,41 @@ describe('list endpoint pagination', () => {
     expect(projects).toHaveLength(200);
   });
 });
+
+describe('updateTimeEntry', () => {
+  afterEach(() => {
+    fetchMock.mockReset();
+  });
+
+  it('sends a PUT with only the provided fields', async () => {
+    fetchMock.mockResolvedValueOnce(
+      response({ status: 200, json: { id: 42, description: 'Updated', duration: 3600 } })
+    );
+
+    const api = new TogglAPI('token');
+    const result = await api.updateTimeEntry(2154504, 42, {
+      description: 'Updated',
+      duration: 3600,
+    });
+
+    expect(result).toMatchObject({ id: 42, description: 'Updated', duration: 3600 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, { method: string; body: string }];
+    expect(url).toContain('/workspaces/2154504/time_entries/42');
+    expect(options.method).toBe('PUT');
+    expect(JSON.parse(options.body)).toEqual({
+      description: 'Updated',
+      duration: 3600,
+    });
+  });
+
+  it('propagates a sanitized error when the entry does not belong to the workspace', async () => {
+    fetchMock.mockResolvedValueOnce(response({ status: 403, text: 'Forbidden' }));
+
+    const api = new TogglAPI('token');
+    await expect(api.updateTimeEntry(2154504, 42, { description: 'x' })).rejects.toThrow(
+      /Authentication failed/
+    );
+  });
+});

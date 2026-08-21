@@ -315,6 +315,64 @@ const tools: Tool[] = [
       required: [],
     },
   },
+  {
+    name: 'toggl_update_time_entry',
+    description:
+      'Update an existing time entry (description, project, task, tags, start/stop, duration, billable). Only fields provided are changed.',
+    annotations: {
+      readOnlyHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        time_entry_id: {
+          type: 'number',
+          description: 'ID of the time entry to update',
+        },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
+        },
+        description: {
+          type: 'string',
+          description: 'New description for the time entry',
+        },
+        project_id: {
+          type: 'number',
+          description: 'New project ID',
+        },
+        task_id: {
+          type: 'number',
+          description: 'New task ID',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Replacement tags for the entry',
+        },
+        start: {
+          type: 'string',
+          description: 'New start time (ISO 8601 datetime)',
+        },
+        stop: {
+          type: 'string',
+          description: 'New stop time (ISO 8601 datetime)',
+        },
+        duration: {
+          type: 'number',
+          description: 'New duration in seconds',
+        },
+        billable: {
+          type: 'boolean',
+          description: 'Whether the entry is billable',
+        },
+      },
+      required: ['time_entry_id'],
+    },
+  },
 
   // Reporting tools
   {
@@ -770,6 +828,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 {
                   success: true,
                   message: 'Timer stopped',
+                  entry: hydrated[0],
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case 'toggl_update_time_entry': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'updating a time entry');
+        const timeEntryId = args?.time_entry_id as number;
+
+        const updates: Record<string, unknown> = {};
+        if (args?.description !== undefined) updates.description = args.description;
+        if (args?.project_id !== undefined) updates.project_id = args.project_id;
+        if (args?.task_id !== undefined) updates.task_id = args.task_id;
+        if (args?.tags !== undefined) updates.tags = args.tags;
+        if (args?.start !== undefined) updates.start = args.start;
+        if (args?.stop !== undefined) updates.stop = args.stop;
+        if (args?.duration !== undefined) updates.duration = args.duration;
+        if (args?.billable !== undefined) updates.billable = args.billable;
+
+        const updated = await api.updateTimeEntry(workspaceId, timeEntryId, updates);
+
+        await ensureCache();
+        const hydrated = await cache.hydrateTimeEntries([updated]);
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  message: 'Time entry updated',
                   entry: hydrated[0],
                 },
                 null,
