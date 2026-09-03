@@ -26,8 +26,8 @@ async function setup() {
       const envContent = await fs.readFile(envExamplePath, 'utf-8');
       await fs.writeFile(envPath, envContent);
       console.log('✅ .env file created');
-      console.log('\n⚠️  Please edit .env and add your Toggl API key');
-      console.log('   Get your API key from: https://track.toggl.com/profile\n');
+      console.log('\n⚠️  Please edit .env and add your Toggl API token');
+      console.log('   Get your API token from: https://track.toggl.com/profile\n');
     }
     
     // Install dependencies
@@ -44,8 +44,9 @@ async function setup() {
     console.log('\n' + '='.repeat(50));
     console.log('✨ Setup Complete!\n');
     console.log('Next steps:');
-    console.log('1. Edit .env and add your TOGGL_API_KEY');
-    console.log('2. Add to your MCP configuration:');
+    console.log('1. Edit .env and add your TOGGL_API_TOKEN');
+    console.log('2. Optionally copy config/project-aliases.example.json to config/project-aliases.json');
+    console.log('3. Add to your MCP configuration:');
     console.log('\n📋 For Claude Desktop:');
     console.log('Edit: ~/Library/Application Support/Claude/claude_desktop_config.json');
     console.log(JSON.stringify({
@@ -53,19 +54,19 @@ async function setup() {
         "command": "node",
         "args": [path.join(__dirname, '..', 'dist', 'index.js')],
         "env": {
-          "TOGGL_API_KEY": "your_api_key_here"
+          "TOGGL_API_TOKEN": "your_api_token_here"
         }
       }
     }, null, 2));
     
-    console.log('\n📋 For Cursor:');
+    console.log('\n📋 For Claude Code:');
     console.log('Add to .mcp.json in your project:');
     console.log(JSON.stringify({
       "mcp-toggl": {
         "command": "node",
         "args": ["./mcp-servers/mcp-toggl/dist/index.js"],
         "env": {
-          "TOGGL_API_KEY": "your_api_key_here"
+          "TOGGL_API_TOKEN": "your_api_token_here"
         }
       }
     }, null, 2));
