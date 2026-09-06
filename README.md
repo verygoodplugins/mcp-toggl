@@ -139,6 +139,15 @@ mcp-toggl --help
 | `toggl_list_workspaces` | Lists all accessible workspaces. |
 | `toggl_list_projects` | Lists projects for a workspace using cache-backed reads after first fetch. |
 | `toggl_list_clients` | Lists clients for a workspace using cache-backed reads after first fetch. |
+| `toggl_list_tags` | Lists tags for a workspace using cache-backed reads after first fetch. |
+
+### Tag Management
+
+| Tool | What it does |
+| --- | --- |
+| `toggl_create_tag` | Creates a tag in a workspace. Invalidates cached tag listings. |
+| `toggl_update_tag` | Renames an existing tag. Invalidates cached tag listings. |
+| `toggl_delete_tag` | Deletes a tag from a workspace. Invalidates cached tag listings. |
 
 ### Cache Management
 
