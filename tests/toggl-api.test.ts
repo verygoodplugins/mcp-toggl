@@ -14,20 +14,34 @@ function response({
   text = '',
   json,
   retryAfter,
+  contentLength,
 }: {
   status: number;
   text?: string;
   json?: unknown;
   retryAfter?: string;
+  contentLength?: string;
 }) {
   return {
     status,
     ok: status >= 200 && status < 300,
     headers: {
-      get: vi.fn((name: string) => (name.toLowerCase() === 'retry-after' ? retryAfter : null)),
+      get: vi.fn((name: string) => {
+        const key = name.toLowerCase();
+        if (key === 'retry-after') return retryAfter;
+        if (key === 'content-length') return contentLength;
+        return null;
+      }),
     },
-    text: vi.fn(async () => text),
-    json: vi.fn(async () => json),
+    text: vi.fn(async () => {
+      if (text) return text;
+      if (json !== undefined) return JSON.stringify(json);
+      return '';
+    }),
+    json: vi.fn(async () => {
+      if (json !== undefined) return json;
+      return JSON.parse(text);
+    }),
   };
 }
 
@@ -62,6 +76,76 @@ describe('toggl api errors', () => {
       status: 429,
       retry_after_seconds: 60,
     });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  // Toggl returns HTTP 200 with content-length: 0 (not 204) on some write endpoints,
+  // including DELETE /workspaces/{wid}/tags/{tid} and DELETE /workspaces/{wid}/time_entries/{tid}.
+  // Naive response.json() throws on the empty body, which previously triggered a misleading retry
+  // that could surface as a 404 because the first call had already succeeded server-side.
+  it('treats HTTP 200 with content-length: 0 as a successful empty response', async () => {
+    fetchMock.mockResolvedValue(response({ status: 200, contentLength: '0', text: '' }));
+
+    const api = new TogglAPI('token');
+    await expect(api.deleteTimeEntry(1, 100)).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('toggl api client CRUD', () => {
+  afterEach(() => {
+    fetchMock.mockReset();
+  });
+
+  it('POSTs to the workspace clients endpoint with name and notes', async () => {
+    fetchMock.mockResolvedValue(
+      response({
+        status: 200,
+        json: { id: 200, workspace_id: 1, name: 'Acme', notes: 'top tier' },
+      })
+    );
+
+    const api = new TogglAPI('token');
+    const client = await api.createClient(1, { name: 'Acme', notes: 'top tier' });
+
+    expect(client.id).toBe(200);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://api.track.toggl.com/api/v9/workspaces/1/clients');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ name: 'Acme', notes: 'top tier' });
+  });
+
+  it('PUTs to the single client endpoint with the supplied update fields', async () => {
+    fetchMock.mockResolvedValue(
+      response({ status: 200, json: { id: 200, workspace_id: 1, name: 'Acme Inc.' } })
+    );
+
+    const api = new TogglAPI('token');
+    await api.updateClient(1, 200, { name: 'Acme Inc.', notes: 'renamed' });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://api.track.toggl.com/api/v9/workspaces/1/clients/200');
+    expect(init.method).toBe('PUT');
+    expect(JSON.parse(init.body)).toEqual({ name: 'Acme Inc.', notes: 'renamed' });
+  });
+
+  it('DELETEs the single client endpoint without a body', async () => {
+    fetchMock.mockResolvedValue(response({ status: 200, contentLength: '0', text: '' }));
+
+    const api = new TogglAPI('token');
+    await api.deleteClient(1, 200);
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://api.track.toggl.com/api/v9/workspaces/1/clients/200');
+    expect(init.method).toBe('DELETE');
+    expect(init.body).toBeUndefined();
+  });
+
+  it('does not retry createClient on 4xx client errors', async () => {
+    fetchMock.mockResolvedValue(response({ status: 400, text: 'name is required' }));
+
+    const api = new TogglAPI('token');
+    await expect(api.createClient(1, { name: '' })).rejects.toThrow(/400/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

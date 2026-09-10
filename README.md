@@ -140,6 +140,14 @@ mcp-toggl --help
 | `toggl_list_projects` | Lists projects for a workspace using cache-backed reads after first fetch. |
 | `toggl_list_clients` | Lists clients for a workspace using cache-backed reads after first fetch. |
 
+### Client Management
+
+| Tool | What it does |
+| --- | --- |
+| `toggl_create_client` | Creates a client with optional notes and external reference. |
+| `toggl_update_client` | Updates a client. Toggl requires `name` on every update; pass the existing name when only changing notes or external reference. |
+| `toggl_delete_client` | Deletes a client by ID. |
+
 ### Cache Management
 
 | Tool | What it does |
