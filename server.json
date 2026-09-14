@@ -41,6 +41,10 @@
       "description": "Stop the currently running timer"
     },
     {
+      "name": "toggl_log_time",
+      "description": "Log a completed time entry with an explicit start time and duration"
+    },
+    {
       "name": "toggl_daily_report",
       "description": "Generate a daily report with project and workspace breakdowns"
     },
