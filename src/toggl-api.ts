@@ -11,6 +11,8 @@ import type {
   TimeEntriesRequest,
   CreateTimeEntryRequest,
   UpdateTimeEntryRequest,
+  CreateClientRequest,
+  UpdateClientRequest,
   TimelineEvent,
 } from './types.js';
 
@@ -127,12 +129,21 @@ export class TogglAPI {
           throw err;
         }
 
-        // Handle 204 No Content
+        // Handle empty bodies on success. Toggl returns 200 with content-length: 0
+        // for some write endpoints (e.g. DELETE /workspaces/{wid}/tags/{tid}); blindly
+        // calling response.json() on those throws and triggers a misleading retry.
         if (response.status === 204) {
           return {} as T;
         }
-
-        return (await response.json()) as T;
+        const contentLength = response.headers.get('content-length');
+        if (contentLength === '0') {
+          return {} as T;
+        }
+        const text = await response.text();
+        if (text.length === 0) {
+          return {} as T;
+        }
+        return JSON.parse(text) as T;
       } catch (error: any) {
         if (error?.noRetry || i === retries - 1) throw error;
         // Exponential backoff for transient/network errors
@@ -213,6 +224,26 @@ export class TogglAPI {
   // Client methods
   async getClients(workspaceId: number): Promise<Client[]> {
     return this.requestAllPages<Client>(`/workspaces/${workspaceId}/clients`);
+  }
+
+  async createClient(workspaceId: number, client: CreateClientRequest): Promise<Client> {
+    return this.request<Client>('POST', `/workspaces/${workspaceId}/clients`, client);
+  }
+
+  async updateClient(
+    workspaceId: number,
+    clientId: number,
+    updates: UpdateClientRequest
+  ): Promise<Client> {
+    return this.request<Client>(
+      'PUT',
+      `/workspaces/${workspaceId}/clients/${clientId}`,
+      updates
+    );
+  }
+
+  async deleteClient(workspaceId: number, clientId: number): Promise<void> {
+    await this.request<void>('DELETE', `/workspaces/${workspaceId}/clients/${clientId}`);
   }
 
   async getClient(clientId: number): Promise<Client> {
