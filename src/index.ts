@@ -7,9 +7,13 @@ import {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { config } from 'dotenv';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { TogglAPI, TimelineNotEnabledError, TogglAPIError } from './toggl-api.js';
 import { buildTimelineResponse } from './timeline.js';
 import { CacheManager } from './cache-manager.js';
+import { loadProjectAliases, resolveProjectId } from './project-aliases.js';
 import { WorkspaceResolutionError, parseWorkspaceId, resolveWorkspaceId } from './workspace.js';
 import {
   getDateRange,
@@ -89,8 +93,9 @@ if (argv.includes('--help') || argv.includes('-h')) {
       `Usage:\n` +
       `  npx @verygoodplugins/mcp-toggl@latest [--help] [--version]\n\n` +
       `Environment:\n` +
-      `  TOGGL_API_KEY                Required Toggl API token\n` +
+      `  TOGGL_API_TOKEN              Required Toggl API token\n` +
       `  TOGGL_DEFAULT_WORKSPACE_ID   Optional default workspace id\n` +
+      `  TOGGL_PROJECT_ALIASES_FILE   Optional project alias JSON path\n` +
       `  TOGGL_CACHE_TTL              Cache TTL in ms (default: 3600000)\n` +
       `  TOGGL_CACHE_SIZE             Max cached entities (default: 1000)\n\n` +
       `Claude Desktop (claude_desktop_config.json):\n` +
@@ -98,7 +103,7 @@ if (argv.includes('--help') || argv.includes('-h')) {
       `    "mcpServers": {\n` +
       `      "mcp-toggl": {\n` +
       `        "command": "npx @verygoodplugins/mcp-toggl@latest",\n` +
-      `        "env": { "TOGGL_API_KEY": "your_api_key_here" }\n` +
+      `        "env": { "TOGGL_API_TOKEN": "your_api_token_here" }\n` +
       `      }\n` +
       `    }\n` +
       `  }\n\n` +
@@ -109,7 +114,7 @@ if (argv.includes('--help') || argv.includes('-h')) {
       `        "mcp-toggl": {\n` +
       `          "command": "npx",\n` +
       `          "args": ["@verygoodplugins/mcp-toggl@latest"],\n` +
-      `          "env": { "TOGGL_API_KEY": "your_api_key_here" }\n` +
+      `          "env": { "TOGGL_API_TOKEN": "your_api_token_here" }\n` +
       `        }\n` +
       `      }\n` +
       `    }\n` +
@@ -124,18 +129,18 @@ config({ quiet: true });
 // Validate required environment variables
 // Support a few aliases for convenience/backward-compat
 const RAW_API_KEY =
-  process.env.TOGGL_API_KEY || process.env.TOGGL_API_TOKEN || process.env.TOGGL_TOKEN;
+  process.env.TOGGL_API_TOKEN || process.env.TOGGL_API_KEY || process.env.TOGGL_TOKEN;
 
 const API_KEY = RAW_API_KEY?.trim();
 
 if (!API_KEY) {
-  console.error('Missing required environment variable: TOGGL_API_KEY');
-  console.error('Also accepted: TOGGL_API_TOKEN or TOGGL_TOKEN');
+  console.error('Missing required environment variable: TOGGL_API_TOKEN');
+  console.error('Also accepted: TOGGL_API_KEY or TOGGL_TOKEN');
   process.exit(1);
 }
 
-if (process.env.TOGGL_API_TOKEN || process.env.TOGGL_TOKEN) {
-  console.warn('Using TOGGL_API_TOKEN/TOGGL_TOKEN. Prefer TOGGL_API_KEY going forward.');
+if (process.env.TOGGL_API_KEY || process.env.TOGGL_TOKEN) {
+  console.warn('Using TOGGL_API_KEY/TOGGL_TOKEN. Prefer TOGGL_API_TOKEN going forward.');
 }
 
 // Initialize configuration
@@ -146,6 +151,11 @@ const cacheConfig: CacheConfig = {
 };
 
 const defaultWorkspaceId = parseWorkspaceId(process.env.TOGGL_DEFAULT_WORKSPACE_ID);
+const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const projectAliasesPath = resolve(
+  process.env.TOGGL_PROJECT_ALIASES_FILE || resolve(serverRoot, 'config/project-aliases.json')
+);
+const projectAliases = existsSync(projectAliasesPath) ? loadProjectAliases(projectAliasesPath) : {};
 
 // Initialize API and cache
 const api = new TogglAPI(API_KEY);
@@ -289,6 +299,10 @@ const tools: Tool[] = [
           type: 'number',
           description: 'Project ID (optional)',
         },
+        project_alias: {
+          type: 'string',
+          description: 'Project alias from config/project-aliases.json (optional)',
+        },
         task_id: {
           type: 'number',
           description: 'Task ID (optional)',
@@ -299,6 +313,52 @@ const tools: Tool[] = [
           description: 'Tags for the entry',
         },
       },
+    },
+  },
+  {
+    name: 'toggl_create_time_entry',
+    description: 'Create a completed time entry with a description, duration, and optional project',
+    annotations: {
+      readOnlyHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        description: {
+          type: 'string',
+          description: 'Description of the completed time entry',
+        },
+        duration_seconds: {
+          type: 'number',
+          minimum: 1,
+          description: 'Completed entry duration in seconds',
+        },
+        start: {
+          type: 'string',
+          description: 'ISO 8601 start time; defaults to now minus duration_seconds',
+        },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace.',
+        },
+        project_id: {
+          type: 'number',
+          description: 'Project ID (optional)',
+        },
+        project_alias: {
+          type: 'string',
+          description: 'Project alias from config/project-aliases.json (optional)',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Tags for the entry',
+        },
+      },
+      required: ['description', 'duration_seconds'],
     },
   },
   {
@@ -473,6 +533,20 @@ const tools: Tool[] = [
             'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
         },
       },
+    },
+  },
+  {
+    name: 'toggl_list_project_aliases',
+    description: 'List configured short project aliases and their Toggl project IDs',
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
     },
   },
 
@@ -710,11 +784,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'toggl_start_timer': {
         const workspaceId = await resolveWorkspaceForTool(args, 'starting a timer');
+        const projectId = resolveProjectId(
+          projectAliases,
+          args?.project_id as number | undefined,
+          args?.project_alias as string | undefined
+        );
 
         const entry = await api.startTimer(
           workspaceId,
           args?.description as string | undefined,
-          args?.project_id as number | undefined,
+          projectId,
           args?.task_id as number | undefined,
           args?.tags as string[] | undefined
         );
@@ -738,6 +817,35 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             },
           ],
         };
+      }
+
+      case 'toggl_create_time_entry': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'creating a time entry');
+        const durationSeconds = args?.duration_seconds as number;
+        const projectId = resolveProjectId(
+          projectAliases,
+          args?.project_id as number | undefined,
+          args?.project_alias as string | undefined
+        );
+        const start =
+          (args?.start as string | undefined) ||
+          new Date(Date.now() - durationSeconds * 1000).toISOString();
+
+        const entry = await api.createTimeEntry(workspaceId, {
+          description: args?.description as string,
+          duration: durationSeconds,
+          start,
+          project_id: projectId,
+          tags: args?.tags as string[] | undefined,
+        });
+
+        await ensureCache();
+        const hydrated = await cache.hydrateTimeEntries([entry]);
+        return jsonResponse({
+          success: true,
+          message: 'Time entry created',
+          entry: hydrated[0],
+        });
       }
 
       case 'toggl_stop_timer': {
@@ -1006,6 +1114,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             },
           ],
         };
+      }
+
+      case 'toggl_list_project_aliases': {
+        return jsonResponse({
+          path: projectAliasesPath,
+          count: Object.keys(projectAliases).length,
+          aliases: projectAliases,
+        });
       }
 
       case 'toggl_list_clients': {
