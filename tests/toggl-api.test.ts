@@ -111,3 +111,38 @@ describe('list endpoint pagination', () => {
     expect(projects).toHaveLength(200);
   });
 });
+
+describe('createTimeEntry', () => {
+  afterEach(() => {
+    fetchMock.mockReset();
+  });
+
+  it('creates a completed entry with a positive duration instead of a running timer', async () => {
+    const responseEntry = {
+      id: 42,
+      workspace_id: 2154504,
+      description: 'retroactive entry',
+      start: '2026-08-24T14:00:00.000Z',
+      duration: 947,
+    };
+    fetchMock.mockResolvedValueOnce(response({ status: 200, json: responseEntry }));
+
+    const api = new TogglAPI('token');
+    const entry = await api.createTimeEntry(2154504, {
+      description: 'retroactive entry',
+      start: '2026-08-24T14:00:00.000Z',
+      duration: 947,
+    });
+
+    expect(entry).toEqual(responseEntry);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/workspaces/2154504/time_entries');
+    expect(init.method).toBe('POST');
+    const body = JSON.parse(init.body as string);
+    expect(body.duration).toBe(947);
+    expect(body.duration).toBeGreaterThan(0);
+    expect(body.workspace_id).toBe(2154504);
+    expect(body.created_with).toBe('mcp-toggl');
+  });
+});

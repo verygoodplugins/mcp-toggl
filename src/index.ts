@@ -315,6 +315,53 @@ const tools: Tool[] = [
       required: [],
     },
   },
+  {
+    name: 'toggl_log_time',
+    description:
+      'Log a completed time entry with an explicit start time and duration (retroactive/manual entry, unlike toggl_start_timer which starts a live timer)',
+    annotations: {
+      readOnlyHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        description: {
+          type: 'string',
+          description: 'Description of the time entry',
+        },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
+        },
+        project_id: {
+          type: 'number',
+          description: 'Project ID (optional)',
+        },
+        task_id: {
+          type: 'number',
+          description: 'Task ID (optional)',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Tags for the entry',
+        },
+        start: {
+          type: 'string',
+          description:
+            'ISO 8601 start timestamp for the entry. Defaults to (now - duration_seconds) if omitted.',
+        },
+        duration_seconds: {
+          type: 'number',
+          description: 'Duration of the entry in seconds. Required; must be a positive number.',
+        },
+      },
+      required: ['duration_seconds'],
+    },
+  },
 
   // Reporting tools
   {
@@ -770,6 +817,50 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 {
                   success: true,
                   message: 'Timer stopped',
+                  entry: hydrated[0],
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case 'toggl_log_time': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'logging a time entry');
+        const durationSeconds = args?.duration_seconds as number;
+        if (
+          typeof durationSeconds !== 'number' ||
+          !Number.isFinite(durationSeconds) ||
+          durationSeconds <= 0
+        ) {
+          throw new Error('duration_seconds must be a positive number');
+        }
+        const start =
+          (args?.start as string | undefined) ??
+          new Date(Date.now() - durationSeconds * 1000).toISOString();
+
+        const entry = await api.createTimeEntry(workspaceId, {
+          description: args?.description as string | undefined,
+          project_id: args?.project_id as number | undefined,
+          task_id: args?.task_id as number | undefined,
+          tags: args?.tags as string[] | undefined,
+          start,
+          duration: durationSeconds,
+        });
+
+        await ensureCache();
+        const hydrated = await cache.hydrateTimeEntries([entry]);
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  message: 'Time entry logged',
                   entry: hydrated[0],
                 },
                 null,
