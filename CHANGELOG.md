@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1](https://github.com/verygoodplugins/mcp-toggl/compare/mcp-toggl-v1.1.0...mcp-toggl-v1.1.1) (2026-06-08)
+
+
+### Bug Fixes
+
+* paginate getProjects/getClients so all results resolve ([#56](https://github.com/verygoodplugins/mcp-toggl/issues/56)) ([48b669a](https://github.com/verygoodplugins/mcp-toggl/commit/48b669abdc4e2776a4ff0abc2e54a2b09c6d6d60))
+
 ## [1.1.0](https://github.com/verygoodplugins/mcp-toggl/compare/v1.0.0...mcp-toggl-v1.1.0) (2026-05-01)
 
 
