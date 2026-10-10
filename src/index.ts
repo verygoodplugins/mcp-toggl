@@ -475,6 +475,79 @@ const tools: Tool[] = [
       },
     },
   },
+  {
+    name: 'toggl_create_client',
+    description: 'Create a new client in a workspace',
+    annotations: {
+      readOnlyHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Client name' },
+        notes: { type: 'string', description: 'Optional notes for the client' },
+        external_reference: {
+          type: 'string',
+          description: 'Optional external system reference (e.g. JIRA/Salesforce ID)',
+        },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
+        },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'toggl_update_client',
+    description:
+      'Update an existing client. Toggl requires name on every update; pass the existing name unchanged when only adjusting notes or external_reference.',
+    annotations: {
+      readOnlyHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        client_id: { type: 'number', description: 'Client ID to update' },
+        name: { type: 'string', description: 'Client name (required by Toggl on update)' },
+        notes: { type: 'string' },
+        external_reference: { type: 'string' },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
+        },
+      },
+      required: ['client_id', 'name'],
+    },
+  },
+  {
+    name: 'toggl_delete_client',
+    description: 'Delete a client by ID',
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        client_id: { type: 'number', description: 'Client ID to delete' },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
+        },
+      },
+      required: ['client_id'],
+    },
+  },
 
   // Cache management
   {
@@ -1033,6 +1106,69 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             },
           ],
         };
+      }
+
+      case 'toggl_create_client': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'creating a client');
+        if (!args?.name || typeof args.name !== 'string') {
+          throw new Error('Client name is required');
+        }
+
+        const client = await api.createClient(workspaceId, {
+          name: args.name,
+          notes: args.notes as string | undefined,
+          external_reference: args.external_reference as string | undefined,
+        });
+
+        cache.invalidateWorkspaceClients(workspaceId);
+
+        return jsonResponse({
+          success: true,
+          message: `Client "${client.name}" created`,
+          client,
+        });
+      }
+
+      case 'toggl_update_client': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'updating a client');
+        const clientId = args?.client_id;
+        if (typeof clientId !== 'number') {
+          throw new Error('client_id is required');
+        }
+        if (!args?.name || typeof args.name !== 'string') {
+          throw new Error('Client name is required (Toggl requires name on every update)');
+        }
+
+        const client = await api.updateClient(workspaceId, clientId, {
+          name: args.name,
+          notes: args.notes as string | undefined,
+          external_reference: args.external_reference as string | undefined,
+        });
+
+        cache.invalidateWorkspaceClients(workspaceId);
+
+        return jsonResponse({
+          success: true,
+          message: `Client ${clientId} updated`,
+          client,
+        });
+      }
+
+      case 'toggl_delete_client': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'deleting a client');
+        const clientId = args?.client_id;
+        if (typeof clientId !== 'number') {
+          throw new Error('client_id is required');
+        }
+
+        await api.deleteClient(workspaceId, clientId);
+
+        cache.invalidateWorkspaceClients(workspaceId);
+
+        return jsonResponse({
+          success: true,
+          message: `Client ${clientId} deleted`,
+        });
       }
 
       // Cache management
