@@ -14,3 +14,4 @@ dist/
 tmp/
 *.code-workspace
 *.tgz
+config/project-aliases.json
