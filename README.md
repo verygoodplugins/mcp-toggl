@@ -130,6 +130,7 @@ mcp-toggl --help
 | `toggl_get_current_entry` | Returns the running timer, elapsed seconds, and hydrated project/workspace context. |
 | `toggl_start_timer` | Starts a timer with description, optional project/task, and tags. |
 | `toggl_stop_timer` | Stops the currently running timer. |
+| `toggl_update_time_entry` | Updates an existing time entry (description, project/task, tags, start/stop, duration, billable). Only the fields you pass are changed. |
 
 ### Lookups
 
