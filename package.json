@@ -67,7 +67,7 @@
     "tsx": "^4.6.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.1",
-    "vitest": "^4.1.12"
+    "vitest": "^5.1.1"
   },
   "overrides": {
     "@typescript-eslint/typescript-estree": {
