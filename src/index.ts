@@ -475,6 +475,102 @@ const tools: Tool[] = [
       },
     },
   },
+  {
+    name: 'toggl_list_tags',
+    description: 'List tags for a workspace',
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
+        },
+      },
+    },
+  },
+  {
+    name: 'toggl_create_tag',
+    description: 'Create a new tag in a workspace',
+    annotations: {
+      readOnlyHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Tag name',
+        },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
+        },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'toggl_update_tag',
+    description: 'Rename an existing tag',
+    annotations: {
+      readOnlyHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tag_id: {
+          type: 'number',
+          description: 'Tag ID to update',
+        },
+        name: {
+          type: 'string',
+          description: 'New tag name',
+        },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
+        },
+      },
+      required: ['tag_id', 'name'],
+    },
+  },
+  {
+    name: 'toggl_delete_tag',
+    description: 'Delete a tag from a workspace',
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tag_id: {
+          type: 'number',
+          description: 'Tag ID to delete',
+        },
+        workspace_id: {
+          type: 'number',
+          description:
+            'Workspace ID. If omitted, uses TOGGL_DEFAULT_WORKSPACE_ID or the only available workspace; required when multiple workspaces exist.',
+        },
+      },
+      required: ['tag_id'],
+    },
+  },
 
   // Cache management
   {
@@ -1033,6 +1129,77 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             },
           ],
         };
+      }
+
+      case 'toggl_list_tags': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'listing tags');
+
+        const tags = await cache.getTags(workspaceId);
+
+        return jsonResponse({
+          workspace_id: workspaceId,
+          count: tags.length,
+          tags: tags.map((t) => ({
+            id: t.id,
+            name: t.name,
+          })),
+        });
+      }
+
+      case 'toggl_create_tag': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'creating a tag');
+        const name = args?.name;
+        if (typeof name !== 'string' || name.trim().length === 0) {
+          throw new Error('Tag name is required');
+        }
+
+        const tag = await api.createTag(workspaceId, name);
+        cache.invalidateWorkspaceTags(workspaceId);
+
+        return jsonResponse({
+          success: true,
+          message: 'Tag created',
+          tag: { id: tag.id, name: tag.name, workspace_id: tag.workspace_id },
+        });
+      }
+
+      case 'toggl_update_tag': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'updating a tag');
+        const tagId = args?.tag_id;
+        const name = args?.name;
+        if (typeof tagId !== 'number') {
+          throw new Error('tag_id is required');
+        }
+        if (typeof name !== 'string' || name.trim().length === 0) {
+          throw new Error('Tag name is required');
+        }
+
+        const tag = await api.updateTag(workspaceId, tagId, name);
+        cache.invalidateWorkspaceTags(workspaceId);
+
+        return jsonResponse({
+          success: true,
+          message: 'Tag updated',
+          tag: { id: tag.id, name: tag.name, workspace_id: tag.workspace_id },
+        });
+      }
+
+      case 'toggl_delete_tag': {
+        const workspaceId = await resolveWorkspaceForTool(args, 'deleting a tag');
+        const tagId = args?.tag_id;
+        if (typeof tagId !== 'number') {
+          throw new Error('tag_id is required');
+        }
+
+        await api.deleteTag(workspaceId, tagId);
+        cache.invalidateWorkspaceTags(workspaceId);
+
+        return jsonResponse({
+          success: true,
+          message: 'Tag deleted',
+          workspace_id: workspaceId,
+          tag_id: tagId,
+        });
       }
 
       // Cache management

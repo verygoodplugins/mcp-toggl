@@ -185,6 +185,34 @@ describe('cache manager', () => {
     expect(hydrated?.tag_names).toEqual(['automated', 'test']);
   });
 
+  it('invalidateWorkspaceTags forces a refetch and clears single-tag entries for that workspace only', async () => {
+    const otherWorkspaceTag: Tag = { id: 99, workspace_id: 2, name: 'other-ws' };
+    const api = {
+      ...createAPI(),
+      getTags: vi.fn(async (workspaceId: number) =>
+        workspaceId === 1 ? tags : [otherWorkspaceTag]
+      ),
+    };
+    const cache = new CacheManager(config);
+    cache.setAPI(api);
+
+    await cache.getTags(1);
+    await cache.getTags(2);
+    await cache.getTags(1);
+    expect(api.getTags).toHaveBeenCalledTimes(2);
+
+    cache.invalidateWorkspaceTags(1);
+
+    const internalTags = (cache as unknown as { tags: Map<number, unknown> }).tags;
+    expect(internalTags.has(30)).toBe(false);
+    expect(internalTags.has(31)).toBe(false);
+    expect(internalTags.has(99)).toBe(true);
+
+    await expect(cache.getTags(1)).resolves.toEqual(tags);
+    await expect(cache.getTags(2)).resolves.toEqual([otherWorkspaceTag]);
+    expect(api.getTags).toHaveBeenCalledTimes(3);
+  });
+
   it('normalizes null tag fields and adds running duration metadata', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-01T10:01:00.000Z'));
